@@ -252,6 +252,7 @@ HID_HandleTypeDef;
 #define HID_BOOT_CODE                                 0x01U
 #define HID_KEYBRD_BOOT_CODE                          0x01U
 #define HID_MOUSE_BOOT_CODE                           0x02U
+// TODO add boot code here?
 
 
 /**

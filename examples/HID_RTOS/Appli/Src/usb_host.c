@@ -35,6 +35,7 @@ typedef enum {
   HID_APP_WAIT,
   HID_APP_MOUSE,
   HID_APP_KEYBOARD,
+  HID_APP_WISECOCO,
 }HID_APP_State;
 __IO HID_APP_State hid_app_state;
 extern HID_MOUSE_Info_TypeDef mouse_info;
@@ -44,6 +45,7 @@ extern HID_MOUSE_Info_TypeDef mouse_info;
 /* USER CODE BEGIN PFP */
 void HID_KEYBRD_App(USBH_HandleTypeDef *phost);
 void HID_MOUSE_App(USBH_HandleTypeDef *phost);
+void HID_Wisecoco_App(USBH_HandleTypeDef *phost);
 static void HID_MOUSE_ProcessData(HID_MOUSE_Info_TypeDef *data);
 /* USER CODE END PFP */
 
@@ -171,6 +173,10 @@ void HID_Process(void)
         hid_app_state = HID_APP_MOUSE;
         USBH_UsrLog("USB HID Host Mouse App...");
       }
+      else if(USBH_HID_GetDeviceType(&hUsbHost) == HID_APP_WISECOCO) {
+    	  hid_app_state = HID_APP_WISECOCO;
+    	USBH_UsrLog("Found the Wisecoco touch controller...");
+      }
     }
     break;
 
@@ -187,6 +193,11 @@ void HID_Process(void)
       HID_KEYBRD_App(&hUsbHost);
     }
     break;
+
+  case HID_APP_WISECOCO:
+    if(Appli_state == APPLICATION_READY) {
+      HID_Wisecoco_App(&UsbHost);
+    }
 
   default:
     break;
@@ -264,6 +275,11 @@ void HID_KEYBRD_App(USBH_HandleTypeDef *phost)
       USBH_UsrLog("%c", c);
     }
   }
+}
+
+void HID_Wisecoco_App(USBH_HandleTypeDef *phost) {
+  //TODO
+  USBH_UsrLog("Touch event");
 }
 /* USER CODE END 2 */
 

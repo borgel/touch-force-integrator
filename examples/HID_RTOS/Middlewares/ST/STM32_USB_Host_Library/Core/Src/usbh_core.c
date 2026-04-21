@@ -480,6 +480,7 @@ USBH_StatusTypeDef USBH_Process(USBH_HandleTypeDef *phost)
     phost->gState = HOST_DEV_DISCONNECTED;
   }
 
+  // TODO here to get USB enum? state machine
   switch (phost->gState)
   {
     case HOST_IDLE :
@@ -670,6 +671,7 @@ USBH_StatusTypeDef USBH_Process(USBH_HandleTypeDef *phost)
       {
         phost->pActiveClass = NULL;
 
+        // TODO add the touchscreen class in here somewhere
         for (idx = 0U; idx < USBH_MAX_NUM_SUPPORTED_CLASS; idx++)
         {
           if (phost->pClass[idx]->ClassCode == phost->device.CfgDesc.Itf_Desc[0].bInterfaceClass)
@@ -684,6 +686,7 @@ USBH_StatusTypeDef USBH_Process(USBH_HandleTypeDef *phost)
           if (phost->pActiveClass->Init(phost) == USBH_OK)
           {
             phost->gState = HOST_CLASS_REQUEST;
+            // TODO breakpoint here and see if it hits it? >> it does
             USBH_UsrLog("%s class started.", phost->pActiveClass->Name);
 
             /* Inform user that a class has been activated */

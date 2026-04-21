@@ -186,6 +186,7 @@ static USBH_StatusTypeDef USBH_HID_InterfaceInit(USBH_HandleTypeDef *phost)
     USBH_UsrLog("Mouse device found!");
     HID_Handle->Init = USBH_HID_MouseInit;
   }
+  // TODO add a protocol here
   else
   {
     USBH_UsrLog("Protocol not supported.");
@@ -762,6 +763,7 @@ HID_TypeTypeDef USBH_HID_GetDeviceType(USBH_HandleTypeDef *phost)
 
   if (phost->gState == HOST_CLASS)
   {
+	  // TODO add touchscreen support stuff here
     InterfaceProtocol = phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].bInterfaceProtocol;
     if (InterfaceProtocol == HID_KEYBRD_BOOT_CODE)
     {

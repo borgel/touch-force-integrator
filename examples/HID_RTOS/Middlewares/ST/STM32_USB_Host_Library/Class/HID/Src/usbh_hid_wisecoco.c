@@ -9,6 +9,7 @@ EndBSPDependencies */
 #include "usbh_hid_parser.h"
 
 #include <stdint.h>
+#include <stdbool.h>
 
 /*
  * touch_report_items.c
@@ -397,13 +398,15 @@ USBH_StatusTypeDef USBH_HID_WisecocoInit(USBH_HandleTypeDef *phost)
 }
 
 // return the latest? touch report info to be printed above
-int USBH_HID_GetTouchInfo(USBH_HandleTypeDef *phost) {
+bool USBH_HID_GetTouchReport(USBH_HandleTypeDef *phost, struct USBH_LatestWisecocoData * const newReport) {
   // try to decode a new packet if there is one
   // return data if it was just decoded
-  if(tryGetReport(phost)) {
-    return 5;
+  if(tryGetReport(phost) == USBH_OK) {
+    // TODO unpack fields
+    newReport->x = 5;
+    return true;
   }
-  return -1;
+  return false;
 }
 
 static USBH_StatusTypeDef tryGetReport(USBH_HandleTypeDef *phost) {

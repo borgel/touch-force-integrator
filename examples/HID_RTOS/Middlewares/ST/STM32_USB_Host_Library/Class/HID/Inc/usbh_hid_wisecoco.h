@@ -6,6 +6,8 @@ extern "C" {
 
 #include "usbh_hid.h"
 
+#include <stdbool.h>
+
 /*
  * REPORT_ID_OFFSET controls where field 0 of the payload lives within
  * each buffer. USB HID delivers each report prefixed with its 1-byte
@@ -39,8 +41,8 @@ struct USBH_LatestWisecocoData {
 };
 
 USBH_StatusTypeDef USBH_HID_WisecocoInit(USBH_HandleTypeDef *phost);
-// TODO return latest touch info to print at a higher layer
-int USBH_HID_GetTouchReport(USBH_HandleTypeDef *phost);
+// return true if there is new data
+bool USBH_HID_GetTouchReport(USBH_HandleTypeDef *phost, struct USBH_LatestWisecocoData * const newReport);
 
 #ifdef __cplusplus
 }

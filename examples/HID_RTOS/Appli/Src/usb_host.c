@@ -24,6 +24,8 @@
 #include "usbh_core.h"
 #include "usbh_hid.h"
 
+#include "usbh_hid_wisecoco.h"
+
 /* USER CODE BEGIN Includes */
 
 /* USER CODE END Includes */
@@ -278,9 +280,11 @@ void HID_KEYBRD_App(USBH_HandleTypeDef *phost)
 }
 
 void HID_Wisecoco_App(USBH_HandleTypeDef *phost) {
+  struct USBH_LatestWisecocoData newData;
   //TODO
-  USBH_UsrLog("Touch event");
-  // USBH_HID_GetTouchInfo() to get touches
+  if(USBH_HID_GetTouchReport(phost, &newData)) {
+    printf("Touch x = %d\n", newData.x);
+  }
 }
 /* USER CODE END 2 */
 

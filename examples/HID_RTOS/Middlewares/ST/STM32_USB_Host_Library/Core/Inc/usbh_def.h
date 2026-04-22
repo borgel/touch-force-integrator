@@ -195,7 +195,7 @@ extern "C" {
 #define USBH_MAX_ERROR_COUNT                               0x02U
 
 #if (USBH_USE_OS == 1U)
-#define MSGQUEUE_OBJECTS                                   0x10U
+#define MSGQUEUE_OBJECTS                                   (0x200U * 10)
 #endif /* (USBH_USE_OS == 1U) */
 
 

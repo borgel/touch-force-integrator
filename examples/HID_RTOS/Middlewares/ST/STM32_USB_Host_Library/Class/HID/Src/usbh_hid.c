@@ -788,18 +788,22 @@ HID_TypeTypeDef USBH_HID_GetDeviceType(USBH_HandleTypeDef *phost)
 
   if (phost->gState == HOST_CLASS)
   {
-	  // TODO add touchscreen support stuff here
-    InterfaceProtocol = phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].bInterfaceProtocol;
-    if (InterfaceProtocol == HID_KEYBRD_BOOT_CODE)
-    {
-      type = HID_KEYBOARD;
+    if(phost->device.DevDesc.idVendor == 0x04f3 && phost->device.DevDesc.idProduct == 0x0732) {
+      type = HID_WISECOCO;
     }
-    // TODO else if touch
-    else
-    {
-      if (InterfaceProtocol == HID_MOUSE_BOOT_CODE)
+    else {
+      InterfaceProtocol = phost->device.CfgDesc.Itf_Desc[phost->device.current_interface].bInterfaceProtocol;
+      if (InterfaceProtocol == HID_KEYBRD_BOOT_CODE)
       {
-        type = HID_MOUSE;
+        type = HID_KEYBOARD;
+      }
+      // TODO else if touch
+      else
+      {
+        if (InterfaceProtocol == HID_MOUSE_BOOT_CODE)
+        {
+          type = HID_MOUSE;
+        }
       }
     }
   }

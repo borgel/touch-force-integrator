@@ -20,6 +20,8 @@
 /* Includes ------------------------------------------------------------------*/
 #include "usbh_core.h"
 
+#include <assert.h>
+
 
 /** @addtogroup USBH_LIB
   * @{
@@ -1277,6 +1279,13 @@ void USBH_OS_PutMessage(USBH_HandleTypeDef *phost, USBH_OSEventTypeDef message, 
   if (osMessageQueueGetSpace(phost->os_event) != 0U)
   {
     (void)osMessageQueuePut(phost->os_event, &phost->os_msg, priority, timeout);
+  }
+  else {
+    // make sure the queue has been allocated
+    if(phost->os_event) {
+      // processing queue out of space!
+      assert(0);
+    }
   }
 #endif /* (osCMSIS < 0x20000U) */
 }

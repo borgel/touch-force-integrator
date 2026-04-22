@@ -129,6 +129,8 @@ typedef enum
 {
   HID_MOUSE    = 0x01,
   HID_KEYBOARD = 0x02,
+  // TODO does this need to be a specific value?
+  HID_WISECOCO = 0x03,
   HID_UNKNOWN = 0xFF,
 }
 HID_TypeTypeDef;

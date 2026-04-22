@@ -263,6 +263,7 @@ static USBH_StatusTypeDef DeInitStateMachine(USBH_HandleTypeDef *phost)
   * @param  pclass: Class handle
   * @retval USBH Status
   */
+// XXX here is where the class is registered
 USBH_StatusTypeDef USBH_RegisterClass(USBH_HandleTypeDef *phost, USBH_ClassTypeDef *pclass)
 {
   USBH_StatusTypeDef status = USBH_OK;
@@ -487,7 +488,7 @@ USBH_StatusTypeDef USBH_Process(USBH_HandleTypeDef *phost)
 
       if ((phost->device.is_connected) != 0U)
       {
-        USBH_UsrLog("USB Device Connected");
+        USBH_UsrLog("\n\nUSB Device Connected");
 
         /* Wait for 200 ms after connection */
         phost->gState = HOST_DEV_WAIT_FOR_ATTACHMENT;
@@ -671,9 +672,12 @@ USBH_StatusTypeDef USBH_Process(USBH_HandleTypeDef *phost)
       {
         phost->pActiveClass = NULL;
 
+        printf("Interface class desc 0: 0x%0x\n", phost->device.CfgDesc.Itf_Desc[0].bInterfaceClass);
+
         // TODO add the touchscreen class in here somewhere
         for (idx = 0U; idx < USBH_MAX_NUM_SUPPORTED_CLASS; idx++)
         {
+          // left is the list registered with the driver
           if (phost->pClass[idx]->ClassCode == phost->device.CfgDesc.Itf_Desc[0].bInterfaceClass)
           {
             phost->pActiveClass = phost->pClass[idx];
@@ -683,6 +687,7 @@ USBH_StatusTypeDef USBH_Process(USBH_HandleTypeDef *phost)
 
         if (phost->pActiveClass != NULL)
         {
+          // XXX this calls back into USBH_HID_InterfaceInit
           if (phost->pActiveClass->Init(phost) == USBH_OK)
           {
             phost->gState = HOST_CLASS_REQUEST;
@@ -695,12 +700,14 @@ USBH_StatusTypeDef USBH_Process(USBH_HandleTypeDef *phost)
           else
           {
             phost->gState = HOST_ABORT_STATE;
+            // XXX here is where it fails to enumerate because it doesn't understand the class
             USBH_UsrLog("Device not supporting %s class.", phost->pActiveClass->Name);
           }
         }
         else
         {
           phost->gState = HOST_ABORT_STATE;
+          // XXX also fails here
           USBH_UsrLog("No registered class for this device.");
         }
       }

@@ -143,20 +143,32 @@ static USBH_StatusTypeDef USBH_HID_InterfaceInit(USBH_HandleTypeDef *phost)
   uint8_t num = 0U;
   uint8_t interface;
 
-  interface = USBH_FindInterface(phost, phost->pActiveClass->ClassCode, HID_BOOT_CODE, 0xFFU);
+  printf("\nITnterfaceInit Top\n");
+  //                             host handle   class 3 (HID)             subclass       protocol
+//  interface = USBH_FindInterface(phost, phost->pActiveClass->ClassCode, HID_BOOT_CODE, 0xFFU);
+  interface = USBH_FindInterface(phost, phost->pActiveClass->ClassCode, 0xFF, 0xFFU);
+
+  printf("found interface\n");
 
   if ((interface == 0xFFU) || (interface >= USBH_MAX_NUM_INTERFACES)) /* No Valid Interface */
   {
+    printf("interface found was 0x%0x\n", interface);
+
     USBH_DbgLog("Cannot Find the interface for %s class.", phost->pActiveClass->Name);
     return USBH_FAIL;
   }
+
+  printf("about to select interface 0x%0x\n", interface);
 
   status = USBH_SelectInterface(phost, interface);
 
   if (status != USBH_OK)
   {
+    printf("failed to select interface\n");
     return USBH_FAIL;
   }
+
+  printf("selected interface\n");
 
   phost->pActiveClass->pData = (HID_HandleTypeDef *)USBH_malloc(sizeof(HID_HandleTypeDef));
   HID_Handle = (HID_HandleTypeDef *) phost->pActiveClass->pData;
@@ -175,6 +187,8 @@ static USBH_StatusTypeDef USBH_HID_InterfaceInit(USBH_HandleTypeDef *phost)
   /* Store the HID interface */
   HID_Handle->current_interface = interface;
 
+  printf("interface protocol = 0x%0x\n", phost->device.CfgDesc.Itf_Desc[interface].bInterfaceProtocol);
+
   /*Decode Bootclass Protocol: Mouse or Keyboard*/
   if (phost->device.CfgDesc.Itf_Desc[interface].bInterfaceProtocol == HID_KEYBRD_BOOT_CODE)
   {
@@ -186,10 +200,14 @@ static USBH_StatusTypeDef USBH_HID_InterfaceInit(USBH_HandleTypeDef *phost)
     USBH_UsrLog("Mouse device found!");
     HID_Handle->Init = USBH_HID_MouseInit;
   }
-  // TODO add a protocol here
+  else if(phost->device.DevDesc.idVendor == 0x04F3 && phost->device.DevDesc.idProduct == 0x0732) {
+    USBH_UsrLog("Found Wisecoco touchscreen!");
+    // FIXME write init
+    HID_Handle->Init = NULL;
+  }
   else
   {
-    USBH_UsrLog("Protocol not supported.");
+    USBH_UsrLog("Protocol %du not supported.", phost->device.CfgDesc.Itf_Desc[interface].bInterfaceProtocol);
     return USBH_FAIL;
   }
 
@@ -239,6 +257,8 @@ static USBH_StatusTypeDef USBH_HID_InterfaceInit(USBH_HandleTypeDef *phost)
       (void)USBH_LL_SetToggle(phost, HID_Handle->OutPipe, 0U);
     }
   }
+
+  printf("\nIBnterfaceInit End\n");
 
   return USBH_OK;
 }
@@ -322,6 +342,7 @@ static USBH_StatusTypeDef USBH_HID_ClassRequest(USBH_HandleTypeDef *phost)
       classReqStatus = USBH_HID_GetHIDReportDescriptor(phost, HID_Handle->HID_Desc.wItemLength);
       if (classReqStatus == USBH_OK)
       {
+        printf("got a descriptor\n");
         /* The descriptor is available in phost->device.Data */
         HID_Handle->ctl_state = USBH_HID_REQ_SET_IDLE;
       }
@@ -357,6 +378,8 @@ static USBH_StatusTypeDef USBH_HID_ClassRequest(USBH_HandleTypeDef *phost)
 
     case USBH_HID_REQ_SET_PROTOCOL:
       /* set protocol */
+      // TODO is protocol 0 boot protocol?
+      printf("setting protocol\n");
       classReqStatus = USBH_HID_SetProtocol(phost, 0U);
       if (classReqStatus == USBH_OK)
       {
@@ -769,6 +792,7 @@ HID_TypeTypeDef USBH_HID_GetDeviceType(USBH_HandleTypeDef *phost)
     {
       type = HID_KEYBOARD;
     }
+    // TODO else if touch
     else
     {
       if (InterfaceProtocol == HID_MOUSE_BOOT_CODE)

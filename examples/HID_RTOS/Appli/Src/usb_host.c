@@ -173,7 +173,7 @@ void HID_Process(void)
         hid_app_state = HID_APP_MOUSE;
         USBH_UsrLog("USB HID Host Mouse App...");
       }
-      else if(USBH_HID_GetDeviceType(&hUsbHost) == HID_APP_WISECOCO) {
+      else if(USBH_HID_GetDeviceType(&hUsbHost) == HID_WISECOCO) {
     	  hid_app_state = HID_APP_WISECOCO;
     	USBH_UsrLog("Found the Wisecoco touch controller...");
       }
@@ -196,7 +196,7 @@ void HID_Process(void)
 
   case HID_APP_WISECOCO:
     if(Appli_state == APPLICATION_READY) {
-      HID_Wisecoco_App(&UsbHost);
+      HID_Wisecoco_App(&hUsbHost);
     }
 
   default:

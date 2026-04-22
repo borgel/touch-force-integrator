@@ -280,6 +280,7 @@ void HID_KEYBRD_App(USBH_HandleTypeDef *phost)
 void HID_Wisecoco_App(USBH_HandleTypeDef *phost) {
   //TODO
   USBH_UsrLog("Touch event");
+  // USBH_HID_GetTouchInfo() to get touches
 }
 /* USER CODE END 2 */
 

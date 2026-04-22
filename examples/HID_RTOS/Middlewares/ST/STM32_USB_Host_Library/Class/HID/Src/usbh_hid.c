@@ -202,8 +202,8 @@ static USBH_StatusTypeDef USBH_HID_InterfaceInit(USBH_HandleTypeDef *phost)
   }
   else if(phost->device.DevDesc.idVendor == 0x04F3 && phost->device.DevDesc.idProduct == 0x0732) {
     USBH_UsrLog("Found Wisecoco touchscreen!");
-    // FIXME write init
-    HID_Handle->Init = NULL;
+    // called later in USBH_HID_Process() (once the HID device is fully inflated?)
+    HID_Handle->Init = USBH_HID_WisecocoInit;
   }
   else
   {
@@ -384,6 +384,8 @@ static USBH_StatusTypeDef USBH_HID_ClassRequest(USBH_HandleTypeDef *phost)
       if (classReqStatus == USBH_OK)
       {
         HID_Handle->ctl_state = USBH_HID_REQ_IDLE;
+
+        printf("set protocol success\n");
 
         /* all requests performed */
         phost->pUser(phost, HOST_USER_CLASS_ACTIVE);

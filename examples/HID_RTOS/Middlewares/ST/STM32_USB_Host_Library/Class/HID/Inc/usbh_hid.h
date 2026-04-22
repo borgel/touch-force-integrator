@@ -28,6 +28,7 @@ extern "C" {
 #include "usbh_core.h"
 #include "usbh_hid_mouse.h"
 #include "usbh_hid_keybd.h"
+#include "usbh_hid_wisecoco.h"
 
 /** @addtogroup USBH_LIB
   * @{

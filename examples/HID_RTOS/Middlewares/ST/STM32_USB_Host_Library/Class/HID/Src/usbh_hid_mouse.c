@@ -245,7 +245,7 @@ static USBH_StatusTypeDef USBH_HID_MouseDecode(USBH_HandleTypeDef *phost)
     return USBH_FAIL;
   }
   /*Fill report */
-  if (USBH_HID_FifoRead(&HID_Handle->fifo, &mouse_report_data, HID_Handle->length) == HID_Handle->length)
+  if (USBH_HID_FifoRead(&HID_Handle->fifo, mouse_report_data, HID_Handle->length) == HID_Handle->length)
   {
 	  // TODO BP here to watch unpacking a report (will crash the bus after though)
     /*Decode report */

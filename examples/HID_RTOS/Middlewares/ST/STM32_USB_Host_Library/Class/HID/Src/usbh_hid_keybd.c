@@ -481,7 +481,7 @@ static USBH_StatusTypeDef USBH_HID_KeybdDecode(USBH_HandleTypeDef *phost)
   }
 
   /*Fill report */
-  if (USBH_HID_FifoRead(&HID_Handle->fifo, &keybd_report_data, HID_Handle->length) ==  HID_Handle->length)
+  if (USBH_HID_FifoRead(&HID_Handle->fifo, keybd_report_data, HID_Handle->length) ==  HID_Handle->length)
   {
     // data comes in inside imp_0_lctrl via ->data. but that is a pointer to the module-global static buffer of
     // data filled by calling USBH_HID_FifoRead above

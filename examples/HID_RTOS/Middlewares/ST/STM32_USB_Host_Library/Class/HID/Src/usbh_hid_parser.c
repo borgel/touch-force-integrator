@@ -99,62 +99,91 @@ EndBSPDependencies */
 uint32_t HID_ReadItem(HID_Report_ItemTypedef *ri, uint8_t ndx)
 {
   uint32_t val = 0U;
-  uint32_t x = 0U;
+  uint32_t x;
   uint32_t bofs;
+  uint32_t n_bytes;
+  uint32_t size_mask;
   uint8_t *data = ri->data;
   uint8_t shift = ri->shift;
 
-  /* get the logical value of the item */
+  /* Reject degenerate field widths; val is uint32_t, so >32 bits can't fit. */
+  if ((ri->size == 0U) || (ri->size > 32U))
+  {
+    return (0U);
+  }
 
-  /* if this is an array, we may need to offset ri->data.*/
+  /* If this is an array item, offset into the packed bit-array by ndx. */
   if (ri->count > 0U)
   {
-    /* If app tries to read outside of the array. */
     if (ri->count <= ndx)
     {
       return (0U);
     }
 
-    /* calculate bit offset */
-    bofs = ndx * ri->size;
+    bofs = (uint32_t)ndx * ri->size;
     bofs += shift;
-    /* calculate byte offset + shift pair from bit offset. */
     data += bofs / 8U;
     shift = (uint8_t)(bofs % 8U);
   }
-  /* read data bytes in little endian order */
-  for (x = 0U; x < (((ri->size & 0x7U) != 0U) ? ((ri->size / 8U) + 1U) : (ri->size / 8U)); x++)
-  {
-    val = (uint32_t)((uint32_t)(*data) << (x * 8U));
-  }
-  val = (val >> shift) & (((uint32_t)1U << ri->size) - 1U);
 
-  if ((val < ri->logical_min) || (val > ri->logical_max))
+  /* Number of bytes covering (shift + size) bits, capped at sizeof(val). */
+  n_bytes = ((uint32_t)shift + ri->size + 7U) / 8U;
+  if (n_bytes > 4U)
   {
-    return (0U);
+    n_bytes = 4U;
   }
 
-  /* convert logical value to physical value */
-  /* See if the number is negative or not. */
-  if ((ri->sign != 0U) && ((val & ((uint32_t)1U << (ri->size - 1U))) != 0U))
+  /* Read bytes in little-endian order, OR-ing each into the accumulator and
+     advancing the pointer. (The original code wrote val = ... and never
+     advanced data, so multi-byte reads returned only the last byte's bits
+     shifted into the top lane.) */
+  for (x = 0U; x < n_bytes; x++)
   {
-    /* yes, so sign extend value to 32 bits. */
-    uint32_t vs = (uint32_t)((0xffffffffU & ~((1U << (ri->size)) - 1U)) | val);
+    val |= (uint32_t)(*data) << (x * 8U);
+    data++;
+  }
 
-    if (ri->resolution == 1U)
+  /* Mask to field width. Guard against (1 << 32) which is UB. */
+  size_mask = (ri->size >= 32U) ? 0xFFFFFFFFU
+                                : (((uint32_t)1U << ri->size) - 1U);
+  val = (val >> shift) & size_mask;
+
+  /* Sign-extend BEFORE the range check so signed fields whose logical_min
+     is negative (stored as its sign-extended uint32 bit pattern) compare
+     correctly. Skip extension when size == 32 — the value already fills val. */
+  if ((ri->sign != 0U) && (ri->size < 32U)
+      && ((val & ((uint32_t)1U << (ri->size - 1U))) != 0U))
+  {
+    val |= ~size_mask;
+  }
+
+  /* Range check, signed or unsigned depending on ri->sign. */
+  if (ri->sign != 0U)
+  {
+    int32_t sval = (int32_t)val;
+    int32_t smin = (int32_t)ri->logical_min;
+    int32_t smax = (int32_t)ri->logical_max;
+    if ((sval < smin) || (sval > smax))
     {
-      return ((uint32_t)vs);
+      return (0U);
     }
-    return ((uint32_t)(vs * ri->resolution));
   }
   else
   {
-    if (ri->resolution == 1U)
+    if ((val < ri->logical_min) || (val > ri->logical_max))
     {
-      return (val);
+      return (0U);
     }
-    return (val * ri->resolution);
   }
+
+  /* Scale by resolution. Two's-complement multiplication makes the
+     unsigned product identical to the signed product for any operand
+     signs, so one code path covers both. */
+  if (ri->resolution == 1U)
+  {
+    return (val);
+  }
+  return (val * ri->resolution);
 }
 
 /**
@@ -167,50 +196,99 @@ uint32_t HID_ReadItem(HID_Report_ItemTypedef *ri, uint8_t ndx)
 uint32_t HID_WriteItem(HID_Report_ItemTypedef *ri, uint32_t value, uint8_t ndx)
 {
   uint32_t x;
-  uint32_t mask;
+  uint32_t field_mask;
+  uint32_t shifted_val;
+  uint32_t shifted_mask;
   uint32_t bofs;
+  uint32_t n_bytes;
   uint8_t *data = ri->data;
   uint8_t shift = ri->shift;
 
-  if ((value < ri->physical_min) || (value > ri->physical_max))
+  /* Reject degenerate field widths; value is uint32_t, so >32 bits can't fit. */
+  if ((ri->size == 0U) || (ri->size > 32U))
   {
     return (1U);
   }
 
-  /* if this is an array, we may need to offset ri->data.*/
+  /* Range check input as a physical value, signed-aware. */
+  if (ri->sign != 0U)
+  {
+    int32_t sval = (int32_t)value;
+    int32_t smin = (int32_t)ri->physical_min;
+    int32_t smax = (int32_t)ri->physical_max;
+    if ((sval < smin) || (sval > smax))
+    {
+      return (1U);
+    }
+  }
+  else
+  {
+    if ((value < ri->physical_min) || (value > ri->physical_max))
+    {
+      return (1U);
+    }
+  }
+
+  /* If this is an array item, offset into the packed bit-array by ndx.
+     (The original code had the predicate inverted and also never used the
+     resulting `data` offset, so every array write silently targeted
+     element 0 or returned "success" without writing.) */
   if (ri->count > 0U)
   {
-    /* If app tries to read outside of the array. */
-    if (ri->count >= ndx)
+    if (ri->count <= ndx)
     {
-      return (0U);
+      return (1U);
     }
-    /* calculate bit offset */
-    bofs = ndx * ri->size;
+
+    bofs = (uint32_t)ndx * ri->size;
     bofs += shift;
-    /* calculate byte offset + shift pair from bit offset. */
     data += bofs / 8U;
     shift = (uint8_t)(bofs % 8U);
-
   }
 
-  /* Convert physical value to logical value. */
+  /* Convert physical value to logical value, preserving signedness. */
   if (ri->resolution != 1U)
   {
-    value = value / ri->resolution;
+    if (ri->sign != 0U)
+    {
+      value = (uint32_t)((int32_t)value / (int32_t)ri->resolution);
+    }
+    else
+    {
+      value = value / ri->resolution;
+    }
   }
 
-  /* Write logical value to report in little endian order. */
-  mask = ((uint32_t)1U << ri->size) - 1U;
-  value = (value & mask) << shift;
+  /* Compute field mask, guarding against (1 << 32) UB. */
+  field_mask = (ri->size >= 32U) ? 0xFFFFFFFFU
+                                 : (((uint32_t)1U << ri->size) - 1U);
 
-  for (x = 0U; x < (((ri->size & 0x7U) != 0U) ? ((ri->size / 8U) + 1U) : (ri->size / 8U)); x++)
+  /* Position both the value and the mask into their bit slots within the
+     output word. The original code shifted only the value, not the mask,
+     so the per-byte merge read-modify-wrote the wrong bits whenever shift
+     was non-zero (e.g. Contact Identifier at shift 2). */
+  shifted_val  = (value & field_mask) << shift;
+  shifted_mask = field_mask << shift;
+
+  /* Bytes covering (shift + size) bits, capped at sizeof(uint32_t). */
+  n_bytes = ((uint32_t)shift + ri->size + 7U) / 8U;
+  if (n_bytes > 4U)
   {
-    *(ri->data + x) = (uint8_t)((*(ri->data + x) & ~(mask >> (x * 8U))) |
-                                ((value >> (x * 8U)) & (mask >> (x * 8U))));
+    n_bytes = 4U;
   }
 
-  return 0U;
+  /* Read-modify-write each byte through `data` (not `ri->data`, which
+     would ignore the array offset): preserve bits outside the field,
+     overwrite bits inside it. */
+  for (x = 0U; x < n_bytes; x++)
+  {
+    uint8_t byte_mask = (uint8_t)(shifted_mask >> (x * 8U));
+    uint8_t byte_val  = (uint8_t)(shifted_val  >> (x * 8U));
+    *(data + x) = (uint8_t)((*(data + x) & (uint8_t)(~byte_mask))
+                            | (byte_val & byte_mask));
+  }
+
+  return (0U);
 }
 
 /**

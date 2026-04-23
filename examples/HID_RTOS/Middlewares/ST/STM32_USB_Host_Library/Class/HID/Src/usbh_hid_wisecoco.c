@@ -61,7 +61,8 @@ enum PacketRxSm {
 };
 /* ReportID 1: 10 fingers * 11 bytes + 4-byte scan time + 1-byte contact count = 115 bytes. */
 // buffer we use to dequeue items from the FIFO into for us to process
-uint8_t touch_report_data          [REPORT_ID_OFFSET + 115U];
+#define REPORT_1_LEN    (REPORT_ID_OFFSET + 115)
+uint8_t touch_report_data          [REPORT_1_LEN];
 enum PacketRxSm touchReportState;
 
 // buffer that the driver puts raw USB HID data into before putting it into the FIFO to send to us
@@ -484,31 +485,27 @@ static USBH_StatusTypeDef tryGetReport(USBH_HandleTypeDef *phost) {
   HID_HandleTypeDef *HID_Handle = (HID_HandleTypeDef *) phost->pActiveClass->pData;
   assert(HID_Handle->fifo.buf != NULL);
 
-  // the demo FIFO stuff is broken in pointless ways, just read pDataLastXferSize bytes out of pData directly
-  int const packetLen = HID_Handle->pDataLastXferSize;
-  if(packetLen == 0) {
+  if(HID_Handle->pDataLastXferSize == 0) {
     // nothing to do, return
     return USBH_FAIL;
   }
 
-  // FIXME rm
-  printf("bytes %d sm %d\n", packetLen, touchReportState);
-
   // there is fresh data, get it and decode it
+  // the demo FIFO stuff is broken in pointless ways, just read pDataLastXferSize bytes out of pData directly
   // we get 116 byte reports split into a 64 byte (max transfer size) + 52 byte. Transfer twice and reassemble them before parsing
 
   if(touchReportState == PRS_IDLE) {
     // receive the first chunk
-    memcpy(&touch_report_data[0], HID_Handle->pData, packetLen);
+    memcpy(&touch_report_data[0], HID_Handle->pData, HID_Handle->pDataLastXferSize);
     touchReportState = PRS_PT2;
   }
   else if(touchReportState == PRS_PT2) {
-    memcpy(&touch_report_data[64], HID_Handle->pData, packetLen);
+    memcpy(&touch_report_data[64], HID_Handle->pData, HID_Handle->pDataLastXferSize);
     touchReportState = PRS_READY;
   }
 
   // mark that we have handled any pending data
-  // TODO this should happen via an OS queue or something
+  // TODO this should happen via an OS queue or something above this level
   HID_Handle->pDataLastXferSize = 0;
 
   if(touchReportState != PRS_READY) {
@@ -517,14 +514,14 @@ static USBH_StatusTypeDef tryGetReport(USBH_HandleTypeDef *phost) {
 
   printf("Got full packet\n");
 
-  // mark (for ourselves) that we consumed this data and are waiting for the next packet
-  // TODO rm this?
+  // assume we will process this and preemptively mark that we consumed this data and are waiting for the next packet
   touchReportState = PRS_IDLE;
 
-
+  // FIXME rm
+  int const packetLen = REPORT_1_LEN;
   printf("%0d - ", packetLen);
   for(int i = 0; i < packetLen; i++) {
-    printf("0x%02x ", HID_Handle->pData[i]);
+    printf("0x%02x ", touch_report_data[i]);
   }
   printf("\n");
 

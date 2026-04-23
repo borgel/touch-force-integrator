@@ -26,7 +26,7 @@ extern "C" {
  *
  *   ReportID  Payload  Total (with REPORT_ID_OFFSET=1)
  *   --------  -------  -------------------------------
- *      1       75        76
+ *      1      115       116
  *     10        1         2
  *     68      256       257   <-- largest
  *      2       64        65

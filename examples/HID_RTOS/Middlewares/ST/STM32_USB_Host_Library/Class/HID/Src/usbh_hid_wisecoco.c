@@ -12,7 +12,6 @@ EndBSPDependencies */
 #include <stdbool.h>
 
 /*
- * touch_report_items.c
  *
  * HID Report decoder tables for the Elan 0x04F3/0x0732 touchscreen
  * (VID/PID) — a composite "Touchscreen" device with one HID interface
@@ -34,6 +33,15 @@ EndBSPDependencies */
  * each individual field out of a received buffer: byte offset (via data
  * pointer), bit shift within that byte, bit size, sign, and the logical
  * and physical ranges declared by the device.
+ *
+ * NOTE on Report 1 field counts:
+ *   The descriptor declares Report Count = 2 for both the X and Y
+ *   Input items (and never resets it between them). Per the HID spec
+ *   this means each finger carries TWO 16-bit X values and TWO 16-bit
+ *   Y values — exposed below as prop_x / prop_x2 and prop_y / prop_y2.
+ *   The device was verified empirically to emit the full 116-byte
+ *   Report 1, which splits over USB FS as one 64-byte packet plus one
+ *   52-byte packet on endpoint 0x81.
  */
 
 /* =========================================================================
@@ -51,10 +59,9 @@ enum PacketRxSm {
   PRS_PT2,      // getting the 52 byte chunk
   PRS_READY,    // have a full frame, ready to process it
 };
-
-/* ReportID 1: 10 fingers * 7 bytes + 4-byte scan time + 1-byte contact count = 75 bytes. */
+/* ReportID 1: 10 fingers * 11 bytes + 4-byte scan time + 1-byte contact count = 115 bytes. */
 // buffer we use to dequeue items from the FIFO into for us to process
-uint8_t touch_report_data          [REPORT_ID_OFFSET + 75U];
+uint8_t touch_report_data          [REPORT_ID_OFFSET + 115U];
 enum PacketRxSm touchReportState;
 
 // buffer that the driver puts raw USB HID data into before putting it into the FIFO to send to us
@@ -76,41 +83,52 @@ uint8_t vendor_out_report3_data    [REPORT_ID_OFFSET + 63U];
 uint8_t vendor_in_report4_data     [REPORT_ID_OFFSET + 19U];
 
 
+
 /* =========================================================================
  *   ReportID 1 — Multi-Touch Digitizer (Input)
  *
  *   Layout within touch_report_data (offsets from REPORT_ID_OFFSET):
  *
- *     +0  .. +6    Finger  0   (7 bytes)
- *     +7  .. +13   Finger  1
- *     +14 .. +20   Finger  2
- *     +21 .. +27   Finger  3
- *     +28 .. +34   Finger  4
- *     +35 .. +41   Finger  5
- *     +42 .. +48   Finger  6
- *     +49 .. +55   Finger  7
- *     +56 .. +62   Finger  8
- *     +63 .. +69   Finger  9
- *     +70 .. +73   Scan Time       (uint32_t LE, 100 microsecond ticks)
- *     +74          Contact Count   (number of fingers valid this frame)
+ *     +0   .. +10    Finger  0   (11 bytes)
+ *     +11  .. +21    Finger  1
+ *     +22  .. +32    Finger  2
+ *     +33  .. +43    Finger  3
+ *     +44  .. +54    Finger  4
+ *     +55  .. +65    Finger  5
+ *     +66  .. +76    Finger  6
+ *     +77  .. +87    Finger  7
+ *     +88  .. +98    Finger  8
+ *     +99  .. +109   Finger  9
+ *     +110 .. +113   Scan Time       (uint32 LE, 100 microsecond ticks)
+ *     +114           Contact Count   (number of fingers valid this frame)
  *
- *   Each 7-byte finger slot:
+ *   Each 11-byte finger slot:
  *
  *     byte +0  bit 0       Tip Switch            (0 = no contact, 1 = contact)
  *     byte +0  bit 1       constant pad          (ignore)
  *     byte +0  bits 2..7   Contact Identifier    (0..63, stable per touch)
  *     byte +1              Width                 (contact patch width, 0..255)
  *     byte +2              Height                (contact patch height, 0..255)
- *     byte +3, +4          X coordinate          (uint16 LE, 0..2160)
- *     byte +5, +6          Y coordinate          (uint16 LE, 0..2880)
+ *     byte +3, +4          X1                    (uint16 LE, 0..2160)
+ *     byte +5, +6          X2                    (uint16 LE, 0..2880 — second X field per descriptor)
+ *     byte +7, +8          Y1                    (uint16 LE, 0..2160)
+ *     byte +9, +10         Y2                    (uint16 LE, 0..2880 — second Y field per descriptor)
  *
- *   Note: X and Y are declared with unit exponent -1 and unit 0x11
- *   (SI length, cm), so one logical count = 0.1 mm. Physical ranges
- *   are 1660 (X) and 2940 (Y) in the device's own coordinate space.
+ *   The reason there are two X and two Y values per finger is that the
+ *   descriptor sets Report Count = 2 before the X Input item and never
+ *   resets it before the Y Input item. X1 inherits the pre-change
+ *   logical/physical max (2160/1660); by the time Y is declared the
+ *   logical max has been bumped to 2880 and the physical max to 2940,
+ *   which apply to both Y fields equally. In practice, inspect live
+ *   data to decide which pair is the authoritative coordinate — the
+ *   second pair is commonly either a duplicate or a firmware artifact.
+ *
+ *   Units: X/Y are declared with unit exponent -1 and unit 0x11
+ *   (SI length, cm), so one logical count = 0.1 mm.
  * ========================================================================= */
 
 #define TOUCH_FINGER_COUNT      10U
-#define TOUCH_FINGER_STRIDE     7U
+#define TOUCH_FINGER_STRIDE     11U
 
 /* Pointer to byte `b` of finger `n`'s slot within touch_report_data. */
 #define FINGER_BYTE(n, b)  \
@@ -182,8 +200,10 @@ static const HID_Report_ItemTypedef prop_height[TOUCH_FINGER_COUNT] =
 };
 
 /*
- * X coordinate (Generic Desktop Usage 0x30): 16-bit little-endian, bytes 3-4.
+ * X1 (Generic Desktop Usage 0x30, first of two): 16-bit little-endian, bytes 3-4.
  * Logical 0..2160, physical 0..1660 (device units), unit = 0.1 mm.
+ * This is the field declared BEFORE the logical/physical max get bumped
+ * up for Y, so it retains the "smaller" X range.
  */
 static const HID_Report_ItemTypedef prop_x[TOUCH_FINGER_COUNT] =
 {
@@ -200,31 +220,72 @@ static const HID_Report_ItemTypedef prop_x[TOUCH_FINGER_COUNT] =
 };
 
 /*
- * Y coordinate (Generic Desktop Usage 0x31): 16-bit little-endian, bytes 5-6.
+ * X2 (Generic Desktop Usage 0x30, second of two): 16-bit little-endian, bytes 5-6.
+ * The Report Count = 2 from the X Input item creates this duplicate field.
+ * Its logical/physical ranges are inherited from the time of declaration,
+ * same as X1. Inspect live data to determine if this carries independent
+ * meaning (e.g. a secondary sensor) or is just a duplicate of X1.
+ */
+static const HID_Report_ItemTypedef prop_x2[TOUCH_FINGER_COUNT] =
+{
+  /* finger 0 */  { .data = FINGER_BYTE(0, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2160, .physical_min = 0, .physical_max = 1660, .resolution = 1 },
+  /* finger 1 */  { .data = FINGER_BYTE(1, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2160, .physical_min = 0, .physical_max = 1660, .resolution = 1 },
+  /* finger 2 */  { .data = FINGER_BYTE(2, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2160, .physical_min = 0, .physical_max = 1660, .resolution = 1 },
+  /* finger 3 */  { .data = FINGER_BYTE(3, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2160, .physical_min = 0, .physical_max = 1660, .resolution = 1 },
+  /* finger 4 */  { .data = FINGER_BYTE(4, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2160, .physical_min = 0, .physical_max = 1660, .resolution = 1 },
+  /* finger 5 */  { .data = FINGER_BYTE(5, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2160, .physical_min = 0, .physical_max = 1660, .resolution = 1 },
+  /* finger 6 */  { .data = FINGER_BYTE(6, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2160, .physical_min = 0, .physical_max = 1660, .resolution = 1 },
+  /* finger 7 */  { .data = FINGER_BYTE(7, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2160, .physical_min = 0, .physical_max = 1660, .resolution = 1 },
+  /* finger 8 */  { .data = FINGER_BYTE(8, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2160, .physical_min = 0, .physical_max = 1660, .resolution = 1 },
+  /* finger 9 */  { .data = FINGER_BYTE(9, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2160, .physical_min = 0, .physical_max = 1660, .resolution = 1 },
+};
+
+/*
+ * Y1 (Generic Desktop Usage 0x31, first of two): 16-bit little-endian, bytes 7-8.
  * Logical 0..2880, physical 0..2940 (device units), unit = 0.1 mm.
+ * The logical and physical maxes were bumped after the X Input item, so
+ * both Y1 and Y2 use the larger Y range.
  */
 static const HID_Report_ItemTypedef prop_y[TOUCH_FINGER_COUNT] =
 {
-  /* finger 0 */  { .data = FINGER_BYTE(0, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
-  /* finger 1 */  { .data = FINGER_BYTE(1, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
-  /* finger 2 */  { .data = FINGER_BYTE(2, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
-  /* finger 3 */  { .data = FINGER_BYTE(3, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
-  /* finger 4 */  { .data = FINGER_BYTE(4, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
-  /* finger 5 */  { .data = FINGER_BYTE(5, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
-  /* finger 6 */  { .data = FINGER_BYTE(6, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
-  /* finger 7 */  { .data = FINGER_BYTE(7, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
-  /* finger 8 */  { .data = FINGER_BYTE(8, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
-  /* finger 9 */  { .data = FINGER_BYTE(9, 5), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 0 */  { .data = FINGER_BYTE(0, 7), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 1 */  { .data = FINGER_BYTE(1, 7), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 2 */  { .data = FINGER_BYTE(2, 7), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 3 */  { .data = FINGER_BYTE(3, 7), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 4 */  { .data = FINGER_BYTE(4, 7), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 5 */  { .data = FINGER_BYTE(5, 7), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 6 */  { .data = FINGER_BYTE(6, 7), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 7 */  { .data = FINGER_BYTE(7, 7), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 8 */  { .data = FINGER_BYTE(8, 7), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 9 */  { .data = FINGER_BYTE(9, 7), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+};
+
+/*
+ * Y2 (Generic Desktop Usage 0x31, second of two): 16-bit little-endian, bytes 9-10.
+ * The Report Count = 2 from the Y Input item creates this duplicate field.
+ */
+static const HID_Report_ItemTypedef prop_y2[TOUCH_FINGER_COUNT] =
+{
+  /* finger 0 */  { .data = FINGER_BYTE(0, 9), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 1 */  { .data = FINGER_BYTE(1, 9), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 2 */  { .data = FINGER_BYTE(2, 9), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 3 */  { .data = FINGER_BYTE(3, 9), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 4 */  { .data = FINGER_BYTE(4, 9), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 5 */  { .data = FINGER_BYTE(5, 9), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 6 */  { .data = FINGER_BYTE(6, 9), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 7 */  { .data = FINGER_BYTE(7, 9), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 8 */  { .data = FINGER_BYTE(8, 9), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
+  /* finger 9 */  { .data = FINGER_BYTE(9, 9), .size = 16, .shift = 0, .count = 0, .sign = 0, .logical_min = 0, .logical_max = 2880, .physical_min = 0, .physical_max = 2940, .resolution = 1 },
 };
 
 /*
  * Scan Time (Digitizer Usage 0x56): 32-bit counter in 100 us units since
- * an arbitrary start, wrapping at 0x7FFFFFFF. Lives at byte offset 70 of
+ * an arbitrary start, wrapping at 0x7FFFFFFF. Lives at byte offset 110 of
  * the finger block.
  */
 static const HID_Report_ItemTypedef prop_scan_time =
 {
-  .data         = touch_report_data + REPORT_ID_OFFSET + 70U,
+  .data         = touch_report_data + REPORT_ID_OFFSET + 110U,
   .size         = 32,
   .shift        = 0,
   .count        = 0,
@@ -238,11 +299,11 @@ static const HID_Report_ItemTypedef prop_scan_time =
 
 /*
  * Contact Count (Digitizer Usage 0x54): 8-bit number of fingers whose
- * slots contain valid data in this frame. Lives at byte 74.
+ * slots contain valid data in this frame. Lives at byte 114.
  */
 static const HID_Report_ItemTypedef prop_contact_count =
 {
-  .data         = touch_report_data + REPORT_ID_OFFSET + 74U,
+  .data         = touch_report_data + REPORT_ID_OFFSET + 114U,
   .size         = 8,
   .shift        = 0,
   .count        = 0,

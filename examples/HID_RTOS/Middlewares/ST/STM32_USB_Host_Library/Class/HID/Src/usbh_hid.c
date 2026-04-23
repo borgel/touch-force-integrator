@@ -498,13 +498,26 @@ static USBH_StatusTypeDef USBH_HID_Process(USBH_HandleTypeDef *phost)
       {
         XferSize = USBH_LL_GetLastXferSize(phost, HID_Handle->InPipe);
 
+        // FIXME rm
+//        printf("xfer %lu\n", XferSize);
+
         if ((HID_Handle->DataReady == 0U) && (XferSize != 0U) && (HID_Handle->fifo.buf != NULL))
         {
+          // make sure we aren't copying more than the user expects
+          assert(XferSize <= HID_Handle->length);
+          // with this you can just read out of pData directly
+          HID_Handle->pDataLastXferSize = XferSize;
+
+          // this original driver code unconditionally copies potentially more bytes than actually came in from the last
+          // LL USB transfer. We ignore the FIFO and use HID_Handle->pData directly
           (void)USBH_HID_FifoWrite(&HID_Handle->fifo, HID_Handle->pData, HID_Handle->length);
+
           HID_Handle->DataReady = 1U;
+          // TODO call the user code from inside CB, not via polling?
           USBH_HID_EventCallback(phost);
 
 #if (USBH_USE_OS == 1U)
+          // TODO put the actual message (or a pointer to it) in an OS queue
           USBH_OS_PutMessage(phost, USBH_URB_EVENT, 0U, 0U);
 #endif /* (USBH_USE_OS == 1U) */
         }

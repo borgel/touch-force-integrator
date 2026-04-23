@@ -201,9 +201,10 @@ HID_DescTypeDef;
 typedef struct
 {
   uint8_t  *buf;
-  uint16_t  head;
+  uint16_t head;
   uint16_t tail;
   uint16_t size;
+  // why doesn't this use an OS lock?
   uint8_t  lock;
 } FIFO_TypeDef;
 
@@ -219,7 +220,8 @@ typedef struct _HID_Process
   HID_CtlStateTypeDef  ctl_state;
   FIFO_TypeDef         fifo;
   uint8_t              *pData;
-  uint16_t             length;
+  uint16_t             pDataLastXferSize;   // how many bytes the did driver actually get in the last transfer
+  uint16_t             length;              // size the user is requesting (and implicitly sort of their max buf size?)
   uint8_t              ep_addr;
   uint16_t             poll;
   uint32_t             timer;

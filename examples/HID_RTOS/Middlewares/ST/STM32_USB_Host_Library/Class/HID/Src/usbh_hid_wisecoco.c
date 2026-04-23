@@ -45,9 +45,18 @@ EndBSPDependencies */
  *   definitions.
  * ========================================================================= */
 
+enum PacketRxSm {
+  PRS_ERR = 0,
+  PRS_IDLE,     // waiting for data (or getting the first 64 byte chunk)
+  PRS_PT2,      // getting the 52 byte chunk
+  PRS_READY,    // have a full frame, ready to process it
+};
+
 /* ReportID 1: 10 fingers * 7 bytes + 4-byte scan time + 1-byte contact count = 75 bytes. */
 // buffer we use to dequeue items from the FIFO into for us to process
 uint8_t touch_report_data          [REPORT_ID_OFFSET + 75U];
+enum PacketRxSm touchReportState;
+
 // buffer that the driver puts raw USB HID data into before putting it into the FIFO to send to us
 uint8_t touch_rx_report_buf        [REPORT_ID_OFFSET + 75U + 1];
 
@@ -371,18 +380,19 @@ USBH_StatusTypeDef USBH_HID_WisecocoInit(USBH_HandleTypeDef *phost)
   // clear all our state and storage buffers
   memset(&latestData, 0, sizeof(latestData));
   memset(touch_report_data, 0, sizeof(touch_report_data));
+  touchReportState = PRS_IDLE;
   memset(touch_rx_report_buf, 0, sizeof(touch_rx_report_buf));
-  // TODO do we actually need any of these? I don't think we will ever get them?
+  // TODO do we actually need any of these? I don't think we will ever get these reports
   memset(feature_contact_max_data, 0, sizeof(feature_contact_max_data));
   memset(feature_cert_blob_data, 0, sizeof(feature_cert_blob_data));
   memset(vendor_in_report2_data, 0, sizeof(vendor_in_report2_data));
   memset(vendor_out_report3_data, 0, sizeof(vendor_out_report3_data));
   memset(vendor_in_report4_data, 0, sizeof(vendor_in_report4_data));
 
-  if(HID_Handle->length > sizeof(touch_report_data)) {
-    // TODO what is this length?
-    HID_Handle->length = (uint16_t)sizeof(touch_report_data);
-  }
+  // FIXME I think this is just for us to use to filter later, and we need to be smarter than that, so drop it?
+  // this is used by the functions in usbh_hid.c which receive data from the USB stack and copy it into our FIFO, so we can't
+  // just drop it (yet)
+  HID_Handle->length = 64; //75; //52; //(uint16_t)sizeof(touch_report_data);
 
   // raw report is stored in this buffer before it gets sent to us via the FIFO
   HID_Handle->pData = touch_rx_report_buf;
@@ -411,23 +421,111 @@ bool USBH_HID_GetTouchReport(USBH_HandleTypeDef *phost, struct USBH_LatestWiseco
 
 static USBH_StatusTypeDef tryGetReport(USBH_HandleTypeDef *phost) {
   HID_HandleTypeDef *HID_Handle = (HID_HandleTypeDef *) phost->pActiveClass->pData;
+  assert(HID_Handle->fifo.buf != NULL);
 
-  // check if there is pending data
-  if ((HID_Handle->length == 0U) || (HID_Handle->fifo.buf == NULL))
-  {
+  // the demo FIFO stuff is broken in pointless ways, just read pDataLastXferSize bytes out of pData directly
+  int const packetLen = HID_Handle->pDataLastXferSize;
+  if(packetLen == 0) {
+    // nothing to do, return
     return USBH_FAIL;
   }
 
-  // there is fresh data, get it a decode it
-  if (USBH_HID_FifoRead(&HID_Handle->fifo, &touch_report_data, HID_Handle->length) == HID_Handle->length) {
-    // TODO decode into real internal storage struct
+  // FIXME rm
+  printf("bytes %d sm %d\n", packetLen, touchReportState);
 
-    int finger0touch = HID_ReadItem((HID_Report_ItemTypedef *) &prop_tip[0], 0);
+  // there is fresh data, get it and decode it
+  // we get 116 byte reports split into a 64 byte (max transfer size) + 52 byte. Transfer twice and reassemble them before parsing
 
-    printf("finger 0 touch: %d\n", finger0touch);
+  if(touchReportState == PRS_IDLE) {
+    // receive the first chunk
+    memcpy(&touch_report_data[0], HID_Handle->pData, packetLen);
+    touchReportState = PRS_PT2;
+  }
+  else if(touchReportState == PRS_PT2) {
+    memcpy(&touch_report_data[64], HID_Handle->pData, packetLen);
+    touchReportState = PRS_READY;
+  }
 
+  // mark that we have handled any pending data
+  // TODO this should happen via an OS queue or something
+  HID_Handle->pDataLastXferSize = 0;
+
+  if(touchReportState != PRS_READY) {
+    return USBH_FAIL;
+  }
+
+  printf("Got full packet\n");
+
+  // mark (for ourselves) that we consumed this data and are waiting for the next packet
+  // TODO rm this?
+  touchReportState = PRS_IDLE;
+
+
+  printf("%0d - ", packetLen);
+  for(int i = 0; i < packetLen; i++) {
+    printf("0x%02x ", HID_Handle->pData[i]);
+  }
+  printf("\n");
+
+  return USBH_OK;
+
+
+  /*
+  int fifoPacketLen = USBH_HID_FifoRead(&HID_Handle->fifo, touch_report_data, HID_Handle->length);
+  if(fifoPacketLen != 64) {
+    // if we didn't get the expected transfer size, return, which will retry and resync us
+    return USBH_FAIL;
+  }
+  fifoPacketLen = USBH_HID_FifoRead(&HID_Handle->fifo, &touch_report_data[fifoPacketLen], HID_Handle->length);
+  if(fifoPacketLen != 52) {
+    return USBH_FAIL;
+  }
+  fifoPacketLen = 64 + 52;
+  */
+
+
+  // FIXME rm
+  int fifoPacketLen = 0;
+  printf("%0d - ", fifoPacketLen);
+  for(int i = 0; i < fifoPacketLen; i++) {
+    printf("0x%02x ", touch_report_data[i]);
+  }
+  printf("\n");
+  return USBH_OK;
+
+  // FIXME rm
+  printf("\\/-----\n");
+
+  // confirm this is a supported report by looking at the first byte and the length
+  uint8_t const reportId = touch_report_data[0];
+
+  // FIXME rm
+  printf("rep %d, len %d\n", reportId, fifoPacketLen);
+
+  // TODO handle other report types
+  if(reportId == 10) {
+    // ID 10 is just number of contacts in a single byte
+    printf("Rep 10: %u contacts\n", touch_report_data[1]);
     return USBH_OK;
   }
-  return USBH_FAIL;
+  else if(reportId != 1) {
+    // we don't support these reports
+    printf("X Rep %d\n", reportId);
+    return USBH_FAIL;
+  }
+  // else, report is 1 (the main one)
+
+  // TODO decode into real internal storage struct
+  printf("total size %d\n", HID_Handle->length);
+  int const touchCount = HID_ReadItem((HID_Report_ItemTypedef*) &prop_contact_count, 0);
+  printf("Count %d\n", touchCount);
+  for(int i = 0; i < TOUCH_FINGER_COUNT; i++) {
+
+  }
+  int finger0touch = HID_ReadItem((HID_Report_ItemTypedef *) &prop_tip[0], 0);
+
+  printf("finger 0 touch: %d\n", finger0touch);
+
+  return USBH_OK;
 }
 

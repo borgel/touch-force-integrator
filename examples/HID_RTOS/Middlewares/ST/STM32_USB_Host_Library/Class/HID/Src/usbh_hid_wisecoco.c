@@ -437,6 +437,15 @@ static USBH_StatusTypeDef tryGetReport(USBH_HandleTypeDef *phost);
 
 USBH_StatusTypeDef USBH_HID_WisecocoInit(USBH_HandleTypeDef *phost)
 {
+  // as far as I can tell these duplicate the non-2 versions of these fields and aren't needed
+  UNUSED(prop_x2);
+  UNUSED(prop_y2);
+  // vendor reports we don't support
+  UNUSED(prop_cert_blob);
+  UNUSED(prop_vendor_in2);
+  UNUSED(prop_vendor_out3);
+  UNUSED(prop_vendor_in4);
+
   HID_HandleTypeDef * const HID_Handle = (HID_HandleTypeDef *) phost->pActiveClass->pData;
 
   // clear all our state and storage buffers
@@ -451,10 +460,10 @@ USBH_StatusTypeDef USBH_HID_WisecocoInit(USBH_HandleTypeDef *phost)
   memset(vendor_out_report3_data, 0, sizeof(vendor_out_report3_data));
   memset(vendor_in_report4_data, 0, sizeof(vendor_in_report4_data));
 
-  // FIXME I think this is just for us to use to filter later, and we need to be smarter than that, so drop it?
   // this is used by the functions in usbh_hid.c which receive data from the USB stack and copy it into our FIFO, so we can't
-  // just drop it (yet)
-  HID_Handle->length = 64; //75; //52; //(uint16_t)sizeof(touch_report_data);
+  // just drop it. For now use 64 bytes, which is the max we can receive from an interrupt transfer (and we check how many
+  // actually came in)
+  HID_Handle->length = 64;
 
   // raw report is stored in this buffer before it gets sent to us via the FIFO
   HID_Handle->pData = touch_rx_report_buf;
@@ -512,12 +521,11 @@ static USBH_StatusTypeDef tryGetReport(USBH_HandleTypeDef *phost) {
     return USBH_FAIL;
   }
 
-  printf("Got full packet\n");
-
   // assume we will process this and preemptively mark that we consumed this data and are waiting for the next packet
   touchReportState = PRS_IDLE;
 
   // FIXME rm
+  /*
   int const packetLen = REPORT_1_LEN;
   printf("%0d - ", packetLen);
   for(int i = 0; i < packetLen; i++) {
@@ -526,30 +534,7 @@ static USBH_StatusTypeDef tryGetReport(USBH_HandleTypeDef *phost) {
   printf("\n");
 
   return USBH_OK;
-
-
-  /*
-  int fifoPacketLen = USBH_HID_FifoRead(&HID_Handle->fifo, touch_report_data, HID_Handle->length);
-  if(fifoPacketLen != 64) {
-    // if we didn't get the expected transfer size, return, which will retry and resync us
-    return USBH_FAIL;
-  }
-  fifoPacketLen = USBH_HID_FifoRead(&HID_Handle->fifo, &touch_report_data[fifoPacketLen], HID_Handle->length);
-  if(fifoPacketLen != 52) {
-    return USBH_FAIL;
-  }
-  fifoPacketLen = 64 + 52;
   */
-
-
-  // FIXME rm
-  int fifoPacketLen = 0;
-  printf("%0d - ", fifoPacketLen);
-  for(int i = 0; i < fifoPacketLen; i++) {
-    printf("0x%02x ", touch_report_data[i]);
-  }
-  printf("\n");
-  return USBH_OK;
 
   // FIXME rm
   printf("\\/-----\n");
@@ -557,32 +542,42 @@ static USBH_StatusTypeDef tryGetReport(USBH_HandleTypeDef *phost) {
   // confirm this is a supported report by looking at the first byte and the length
   uint8_t const reportId = touch_report_data[0];
 
-  // FIXME rm
-  printf("rep %d, len %d\n", reportId, fifoPacketLen);
-
   // TODO handle other report types
   if(reportId == 10) {
     // ID 10 is just number of contacts in a single byte
-    printf("Rep 10: %u contacts\n", touch_report_data[1]);
+    printf("Rep 10: %lu contacts\n", HID_ReadItem((HID_Report_ItemTypedef*) &prop_contact_count_max, 0));
+    // never seen one of these in the wild, so flag it if we do
+    assert(0);
     return USBH_OK;
   }
   else if(reportId != 1) {
-    // we don't support these reports
+    // we don't support other report types
     printf("X Rep %d\n", reportId);
     return USBH_FAIL;
   }
   // else, report is 1 (the main one)
 
-  // TODO decode into real internal storage struct
-  printf("total size %d\n", HID_Handle->length);
   int const touchCount = HID_ReadItem((HID_Report_ItemTypedef*) &prop_contact_count, 0);
   printf("Count %d\n", touchCount);
-  for(int i = 0; i < TOUCH_FINGER_COUNT; i++) {
+  for(int i = 0; i < touchCount; i++) {
+    // last param is index, if there is more than one
+    bool tip = HID_ReadItem((HID_Report_ItemTypedef*) &prop_tip[i], 0);
+    // FIXME why doesn this need to be >> 2?
+    uint8_t touchId = HID_ReadItem((HID_Report_ItemTypedef*) &prop_contact_id[i], 0);
+    uint8_t contactPatchWidth = HID_ReadItem((HID_Report_ItemTypedef*) &prop_width[i], 0);
+    uint8_t contactPatchHeight = HID_ReadItem((HID_Report_ItemTypedef*) &prop_height[i], 0);
 
+    uint16_t posX = HID_ReadItem((HID_Report_ItemTypedef*)&prop_x[i], 0);
+    uint16_t posY = HID_ReadItem((HID_Report_ItemTypedef*)&prop_y[i], 0);
+//    uint16_t posX2 = HID_ReadItem((HID_Report_ItemTypedef*)&prop_x2[i], 0);
+//    uint16_t posY2 = HID_ReadItem((HID_Report_ItemTypedef*)&prop_y2[i], 0);
+
+    // how many microseconds has it been since the first touch of the current group began
+    uint32_t scanTime = HID_ReadItem((HID_Report_ItemTypedef*)&prop_scan_time, 0);
+
+    // FIXME rm
+    printf("  F %2d ID %2d, tip %01u, x/y %4d/%4d, size w/y %3d/%3d time %lu\n", i, touchId, tip, posX, posY, contactPatchWidth, contactPatchHeight, scanTime);
   }
-  int finger0touch = HID_ReadItem((HID_Report_ItemTypedef *) &prop_tip[0], 0);
-
-  printf("finger 0 touch: %d\n", finger0touch);
 
   return USBH_OK;
 }

@@ -23,6 +23,8 @@
 /* USER CODE BEGIN Includes */
 #include "stm32h7s78_discovery.h"
 
+#include <stdint.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -67,6 +69,8 @@ static void MPU_Config(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+#define WINDOW_LAYER (LTDC_LAYER_1)
 
 /* USER CODE END 0 */
 
@@ -117,7 +121,7 @@ int main(void)
   BSP_LED_Init(LD3);
 
   /* Set LTDC layer1 source address */
-  HAL_LTDC_SetAddress(&hltdc, (uint32_t)(&aBufferResult), LTDC_LAYER_1);
+  HAL_LTDC_SetAddress(&hltdc, (uint32_t)(&aBufferResult), WINDOW_LAYER);
 
   /*## DMA2D Callbacks Configuration ######################################*/
   hdma2d.XferCpltCallback  = TransferComplete;
@@ -138,12 +142,16 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  uint8_t i = 0;
   while (1)
   {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    HAL_Delay(100);
 
+    HAL_LTDC_SetWindowPosition(&hltdc, 10 * i, 10 * i, WINDOW_LAYER);
+    i++;
   }
   /* USER CODE END 3 */
 }
@@ -229,7 +237,7 @@ static void MX_LTDC_Init(void)
   pLayerCfg.Backcolor.Blue = 0;
   pLayerCfg.Backcolor.Green = 0;
   pLayerCfg.Backcolor.Red = 0;
-  if (HAL_LTDC_ConfigLayer(&hltdc, &pLayerCfg, 0) != HAL_OK)
+  if (HAL_LTDC_ConfigLayer(&hltdc, &pLayerCfg, WINDOW_LAYER) != HAL_OK)
   {
     Error_Handler();
   }

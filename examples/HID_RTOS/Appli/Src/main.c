@@ -26,6 +26,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "usb_host.h"
+#include "stm32h7s78_discovery.h"
+#include "stm32h7s78_discovery_lcd.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -125,7 +127,11 @@ int main(void)
   MX_UART4_Init();
   MX_UCPD1_Init();
   /* USER CODE BEGIN 2 */
-
+  // TODO what is the instance param? LCD_INSTANCES_NBR ?
+  BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
+  BSP_LCD_SetBrightness(0, 40);
+  // FIXME needed? in demo
+  //UTIL_LCD_SetFuncDriver(&LCD_Driver);
   /* USER CODE END 2 */
 
   /* Init scheduler */

@@ -57,17 +57,17 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define LAYER_SIZE_Y 100
-#define LAYER_SIZE_X 100
+//#define LAYER_SIZE_Y 100
+//#define LAYER_SIZE_X 100
 #define LCD_ON_OFF_Pin GPIO_PIN_15
 #define LCD_ON_OFF_GPIO_Port GPIOE
 #define LCD_BACKLIGHT_Pin GPIO_PIN_15
 #define LCD_BACKLIGHT_GPIO_Port GPIOG
 
 /* USER CODE BEGIN Private defines */
-#define LAYER_SIZE_X 			100
-#define LAYER_SIZE_Y			100
-#define LAYER_BYTE_PER_PIXEL	2 /* for format ARGB4444 */
+//#define LAYER_SIZE_X 			100
+//#define LAYER_SIZE_Y			100
+//#define LAYER_BYTE_PER_PIXEL	2 /* for format ARGB4444 */
 
 /* USER CODE END Private defines */
 

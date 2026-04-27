@@ -52,6 +52,11 @@
 			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/stm32h7rsxx_it.c</locationURI>
 		</link>
 		<link>
+			<name>Application/User/stm32h7s78_discovery_lcd.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/stm32h7s78_discovery_lcd.c</locationURI>
+		</link>
+		<link>
 			<name>Drivers/CMSIS/system_stm32h7rsxx.c</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/system_stm32h7rsxx.c</locationURI>

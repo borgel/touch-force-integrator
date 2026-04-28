@@ -376,8 +376,9 @@ void HAL_LTDC_MspInit(LTDC_HandleTypeDef* hltdc)
   RCC_OscInitStruct.PLL3.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL3.PLLSource = RCC_PLLSOURCE_HSE;
 
-  RCC_OscInitStruct.PLL3.PLLM = 4;
-  RCC_OscInitStruct.PLL3.PLLN = 25;
+  /* HSE=24MHz: M=6 -> ref=4MHz, N=100 -> VCO=400MHz, R=16 -> PLL3R=25MHz (LTDC pixel clock) */
+  RCC_OscInitStruct.PLL3.PLLM = 6;
+  RCC_OscInitStruct.PLL3.PLLN = 100;
   RCC_OscInitStruct.PLL3.PLLP = 2;
   RCC_OscInitStruct.PLL3.PLLQ = 20;
   RCC_OscInitStruct.PLL3.PLLR = 16;

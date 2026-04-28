@@ -597,7 +597,7 @@ void _USBH_Task(void *argument)
 
   int res;
 //   TODO what is the instance param? LCD_INSTANCES_NBR ?
-//   RGBA8888 format by default
+//   RGB888 format by default
   res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
   printf("Init %d\n", res);
   assert(res == 0);
@@ -615,11 +615,23 @@ void _USBH_Task(void *argument)
   assert(res == 0);
   res = BSP_LCD_SetLayerVisible(0, 0, ENABLE);
   assert(res == 0);
-  res = BSP_LCD_FillRect(0, 20, 20, 100, 200, 0xFFAAEEAA);
+
+  /* Framebuffer lives in XSPI memory at 0x90000000 and is not zeroed by
+   * the C runtime, so it boots with undefined contents (visible as noise).
+   * DMA2D fill bypasses the CPU cache, so no cache maintenance is needed. */
+  {
+    uint32_t xsize = 0, ysize = 0;
+    BSP_LCD_GetXSize(0, &xsize);
+    BSP_LCD_GetYSize(0, &ysize);
+    res = BSP_LCD_FillRect(0, 0, 0, xsize, ysize, 0xFF000000);
+    assert(res == 0);
+  }
+
+  res = BSP_LCD_FillRect(0, 20, 20, 100, 200, 0xFF0000FF);
   assert(res == 0);
   res = BSP_LCD_DrawHLine(0, 50, 300, 300, 0xFFFFFFFF);
   assert(res == 0);
-  res = BSP_LCD_DrawHLine(0, 60, 360, 300, 0x0);
+  res = BSP_LCD_DrawHLine(0, 60, 360, 300, 0xFF00FF00);
   assert(res == 0);
 
 

@@ -386,9 +386,9 @@ __weak HAL_StatusTypeDef MX_LTDC_Init(LTDC_HandleTypeDef *hltdc, uint32_t Width,
   hltdc->Init.AccumulatedActiveH = RK050HR18_VSYNC + Height + RK050HR18_VBP;
   hltdc->Init.TotalHeigh         = RK050HR18_VSYNC + Height + RK050HR18_VBP + RK050HR18_VFP;
 
-  hltdc->Init.Backcolor.Blue  = 0xFF;
-  hltdc->Init.Backcolor.Green = 0xFF;
-  hltdc->Init.Backcolor.Red   = 0xFF;
+  hltdc->Init.Backcolor.Blue  = 0;
+  hltdc->Init.Backcolor.Green = 0;
+  hltdc->Init.Backcolor.Red   = 0;
 
   return HAL_LTDC_Init(hltdc);
 }

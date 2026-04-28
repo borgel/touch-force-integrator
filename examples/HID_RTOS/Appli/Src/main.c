@@ -127,11 +127,6 @@ int main(void)
   MX_UART4_Init();
   MX_UCPD1_Init();
   /* USER CODE BEGIN 2 */
-  // TODO what is the instance param? LCD_INSTANCES_NBR ?
-  BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
-  BSP_LCD_SetBrightness(0, 40);
-  // FIXME needed? in demo
-  //UTIL_LCD_SetFuncDriver(&LCD_Driver);
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -419,9 +414,25 @@ PUTCHAR_PROTOTYPE
 /* USER CODE END Header__USBH_Task */
 void _USBH_Task(void *argument)
 {
+  int res;
   /* USER CODE BEGIN 5 */
   MX_USB_HOST_Init();
-//  USBH_UsrLog("Booted");
+
+  // TODO what is the instance param? LCD_INSTANCES_NBR ?
+  // RGBA8888 format by default
+  res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
+  printf("Init %d\n", res);
+  // FIXME needed? in demo, looks like it connects to Utilities/lcd/stm32_lcd.h
+//  UTIL_LCD_SetFuncDriver(&LCD_Driver);
+  res = BSP_LCD_DisplayOn(0);
+  printf("disp on %d\n", res);
+  res = BSP_LCD_SetBrightness(0, 40);
+  printf("set bright %d\n", res);
+
+  // FIXME rm
+  BSP_LCD_SetActiveLayer(0, 0);
+  BSP_LCD_FillRect(0, 20, 20, 100, 200, 0xFFAAEE00);
+
   /* Infinite loop */
   for(;;)
   {

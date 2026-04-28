@@ -79,7 +79,7 @@ int main(void)
   /* USER CODE END 1 */
 
   /* MPU Configuration--------------------------------------------------------*/
-  MPU_Config();
+//  MPU_Config();
 
   /* Enable the CPU Cache */
 
@@ -174,9 +174,67 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL2.PLLS = 2;
   RCC_OscInitStruct.PLL2.PLLT = 2;
   RCC_OscInitStruct.PLL2.PLLFractional = 0;
-  RCC_OscInitStruct.PLL3.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL3.PLLState = RCC_PLL_OFF;
+
+  RCC_OscInitStruct.PLL3.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL3.PLLM = 4;
+  RCC_OscInitStruct.PLL3.PLLN = 25;
+  RCC_OscInitStruct.PLL3.PLLP = 2;
+  RCC_OscInitStruct.PLL3.PLLQ = 20;
+  RCC_OscInitStruct.PLL3.PLLR = 16;
+  RCC_OscInitStruct.PLL3.PLLS = 2;
+  RCC_OscInitStruct.PLL3.PLLT = 2;
+  RCC_OscInitStruct.PLL3.PLLFractional = 0;
+  RCC_OscInitStruct.PLL3.PLLState = RCC_PLL_ON;
+
+
+
+
+//  HAL_StatusTypeDef         status;
+//  RCC_OscInitTypeDef rcc_oscinitstruct = {0};
+
+  /* LCD clock configuration */
+  /* Typical PCLK is 25 MHz so the PLL3R is configured to provide this clock */
+  /* LCD clock configuration */
+  /* PLL3_VCO Input = HSI_VALUE/PLL3M = 64 Mhz / 4 = 16 */
+  /* PLL3_VCO Output = PLL3_VCO Input * PLL3N = 16 Mhz * 25 = 400 */
+  /* PLLLCDCLK = PLL3_VCO Output/PLL3R = 400/16 = 25Mhz */
+  /* LTDC clock frequency = PLLLCDCLK = 25 Mhz */
+//  rcc_oscinitstruct.PLL3.PLLState = RCC_PLL_ON;
+//  rcc_oscinitstruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+////  rcc_oscinitstruct.HSIState = RCC_HSI_ON;
+////  rcc_oscinitstruct.HSIDiv = RCC_HSI_DIV1;
+//  rcc_oscinitstruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+//  rcc_oscinitstruct.PLL3.PLLSource = RCC_PLLSOURCE_HSI;
+//  rcc_oscinitstruct.PLL3.PLLM = 4;
+//  rcc_oscinitstruct.PLL3.PLLN = 25;
+//  rcc_oscinitstruct.PLL3.PLLP = 2;
+//  rcc_oscinitstruct.PLL3.PLLQ = 20;
+//  rcc_oscinitstruct.PLL3.PLLR = 16;
+//  rcc_oscinitstruct.PLL3.PLLS = 2;
+//  rcc_oscinitstruct.PLL3.PLLT = 2;
+//  rcc_oscinitstruct.PLL3.PLLFractional = 0;
+
+//  if (HAL_RCC_OscConfig(&rcc_oscinitstruct) != HAL_OK)
+//  {
+//    status = HAL_ERROR;
+//  }
+//  else
+//  {
+//    status = HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct);
+//  }
+
+
+
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
+    Error_Handler();
+  }
+
+  RCC_PeriphCLKInitTypeDef  PeriphClkInitStruct = {0};
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_LTDC;
+  PeriphClkInitStruct.LtdcClockSelection = RCC_LTDCCLKSOURCE_PLL3R;
+  if(HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK) {
     Error_Handler();
   }
 

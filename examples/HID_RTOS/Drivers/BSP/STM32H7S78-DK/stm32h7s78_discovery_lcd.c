@@ -257,11 +257,11 @@ int32_t BSP_LCD_InitEx(uint32_t Instance, uint32_t Orientation, uint32_t PixelFo
 
     DMA2D_MspInit(&hlcd_dma2d);
 
-    if (MX_LTDC_ClockConfig(&hlcd_ltdc) != HAL_OK)
-    {
-      ret = BSP_ERROR_PERIPH_FAILURE;
-    }
-    else
+//    if (MX_LTDC_ClockConfig(&hlcd_ltdc) != HAL_OK)
+//    {
+//      ret = BSP_ERROR_PERIPH_FAILURE;
+//    }
+//    else
     {
       if (MX_LTDC_Init(&hlcd_ltdc, Width, Height) != HAL_OK)
       {

@@ -257,11 +257,11 @@ int32_t BSP_LCD_InitEx(uint32_t Instance, uint32_t Orientation, uint32_t PixelFo
 
     DMA2D_MspInit(&hlcd_dma2d);
 
-//    if (MX_LTDC_ClockConfig(&hlcd_ltdc) != HAL_OK)
-//    {
-//      ret = BSP_ERROR_PERIPH_FAILURE;
-//    }
-//    else
+    if (MX_LTDC_ClockConfig(&hlcd_ltdc) != HAL_OK)
+    {
+      ret = BSP_ERROR_PERIPH_FAILURE;
+    }
+    else
     {
       if (MX_LTDC_Init(&hlcd_ltdc, Width, Height) != HAL_OK)
       {
@@ -445,20 +445,27 @@ __weak HAL_StatusTypeDef MX_LTDC_ClockConfig(LTDC_HandleTypeDef *hltdc)
   /* PLLLCDCLK = PLL3_VCO Output/PLL3R = 400/16 = 25Mhz */
   /* LTDC clock frequency = PLLLCDCLK = 25 Mhz */
   rcc_oscinitstruct.PLL3.PLLState = RCC_PLL_ON;
-  rcc_oscinitstruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  rcc_oscinitstruct.HSIState = RCC_HSI_ON;
-  rcc_oscinitstruct.HSIDiv = RCC_HSI_DIV1;
-  rcc_oscinitstruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+//  rcc_oscinitstruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+//  rcc_oscinitstruct.HSIState = RCC_HSI_ON;
+//  rcc_oscinitstruct.HSIDiv = RCC_HSI_DIV1;
+//  rcc_oscinitstruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   rcc_oscinitstruct.PLL1.PLLState = RCC_PLL_NONE;
   rcc_oscinitstruct.PLL2.PLLState = RCC_PLL_NONE;
-  rcc_oscinitstruct.PLL3.PLLSource = RCC_PLLSOURCE_HSI;
+  rcc_oscinitstruct.PLL3.PLLSource = RCC_PLLSOURCE_HSE;
+//  rcc_oscinitstruct.PLL3.PLLM = 4;
+//  rcc_oscinitstruct.PLL3.PLLN = 25;
+//  rcc_oscinitstruct.PLL3.PLLP = 2;
+//  rcc_oscinitstruct.PLL3.PLLQ = 1;
+//  rcc_oscinitstruct.PLL3.PLLR = 16;
+//  rcc_oscinitstruct.PLL3.PLLS = 1;
+//  rcc_oscinitstruct.PLL3.PLLT = 1;
   rcc_oscinitstruct.PLL3.PLLM = 4;
   rcc_oscinitstruct.PLL3.PLLN = 25;
   rcc_oscinitstruct.PLL3.PLLP = 2;
-  rcc_oscinitstruct.PLL3.PLLQ = 1;
+  rcc_oscinitstruct.PLL3.PLLQ = 20;
   rcc_oscinitstruct.PLL3.PLLR = 16;
-  rcc_oscinitstruct.PLL3.PLLS = 1;
-  rcc_oscinitstruct.PLL3.PLLT = 1;
+  rcc_oscinitstruct.PLL3.PLLS = 2;
+  rcc_oscinitstruct.PLL3.PLLT = 2;
   rcc_oscinitstruct.PLL3.PLLFractional = 0;
 
   PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_LTDC;

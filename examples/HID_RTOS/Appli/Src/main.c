@@ -149,8 +149,8 @@ int main(void)
   MX_GPDMA1_Init();
   MX_UART4_Init();
   MX_UCPD1_Init();
-  MX_DMA2D_Init();
-  MX_LTDC_Init_Internal();
+//  MX_DMA2D_Init();
+//  MX_LTDC_Init_Internal();
   /* USER CODE BEGIN 2 */
   /* USER CODE END 2 */
 
@@ -394,31 +394,33 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOM_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
-  __HAL_RCC_GPIOF_CLK_ENABLE();
-  __HAL_RCC_GPIOG_CLK_ENABLE();
-  __HAL_RCC_GPIOB_CLK_ENABLE();
-  __HAL_RCC_GPIOE_CLK_ENABLE();
-  __HAL_RCC_GPIOA_CLK_ENABLE();
 
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LCD_ON_OFF_GPIO_Port, LCD_ON_OFF_Pin, GPIO_PIN_SET);
-
-  /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(LCD_BACKLIGHT_GPIO_Port, LCD_BACKLIGHT_Pin, GPIO_PIN_SET);
-
-  /*Configure GPIO pin : LCD_ON_OFF_Pin */
-  GPIO_InitStruct.Pin = LCD_ON_OFF_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LCD_ON_OFF_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : LCD_BACKLIGHT_Pin */
-  GPIO_InitStruct.Pin = LCD_BACKLIGHT_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(LCD_BACKLIGHT_GPIO_Port, &GPIO_InitStruct);
+  // FIXME rm
+//  __HAL_RCC_GPIOF_CLK_ENABLE();
+//  __HAL_RCC_GPIOG_CLK_ENABLE();
+//  __HAL_RCC_GPIOB_CLK_ENABLE();
+//  __HAL_RCC_GPIOE_CLK_ENABLE();
+//  __HAL_RCC_GPIOA_CLK_ENABLE();
+//
+//  /*Configure GPIO pin Output Level */
+//  HAL_GPIO_WritePin(LCD_ON_OFF_GPIO_Port, LCD_ON_OFF_Pin, GPIO_PIN_SET);
+//
+//  /*Configure GPIO pin Output Level */
+//  HAL_GPIO_WritePin(LCD_BACKLIGHT_GPIO_Port, LCD_BACKLIGHT_Pin, GPIO_PIN_SET);
+//
+//  /*Configure GPIO pin : LCD_ON_OFF_Pin */
+//  GPIO_InitStruct.Pin = LCD_ON_OFF_Pin;
+//  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+//  GPIO_InitStruct.Pull = GPIO_NOPULL;
+//  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+//  HAL_GPIO_Init(LCD_ON_OFF_GPIO_Port, &GPIO_InitStruct);
+//
+//  /*Configure GPIO pin : LCD_BACKLIGHT_Pin */
+//  GPIO_InitStruct.Pin = LCD_BACKLIGHT_Pin;
+//  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+//  GPIO_InitStruct.Pull = GPIO_NOPULL;
+//  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+//  HAL_GPIO_Init(LCD_BACKLIGHT_GPIO_Port, &GPIO_InitStruct);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */
@@ -576,49 +578,49 @@ void _USBH_Task(void *argument)
   /* USER CODE BEGIN 5 */
   MX_USB_HOST_Init();
 
-  /* Set LTDC layer1 source address */
-  // we are basically going to draw everything to this buffer
-  HAL_LTDC_SetAddress(&hltdc, (uint32_t)(&aBufferResult), LTDC_LAYER_1);
-
-  /*## DMA2D Callbacks Configuration ######################################*/
-  hdma2d.XferCpltCallback  = TransferComplete;
-  hdma2d.XferErrorCallback = TransferError;
-
-  /*## Start DMA2D transfer ###############################################*/
-  int res = HAL_DMA2D_Start(&hdma2d,
-                        0xF0FF, /* Color value in Register to Memory DMA2D mode */
-                        (uint32_t)&aBufferResult,  /* DMA2D output buffer */
-                        LAYER_SIZE_X, /* width of buffer in pixels */
-                        LAYER_SIZE_Y); /* height of buffer in lines */
-  printf("DMA start %d\n", res);
+//  /* Set LTDC layer1 source address */
+//  // we are basically going to draw everything to this buffer
+//  HAL_LTDC_SetAddress(&hltdc, (uint32_t)(&aBufferResult), LTDC_LAYER_1);
+//
+//  /*## DMA2D Callbacks Configuration ######################################*/
+//  hdma2d.XferCpltCallback  = TransferComplete;
+//  hdma2d.XferErrorCallback = TransferError;
+//
+//  /*## Start DMA2D transfer ###############################################*/
+//  int res = HAL_DMA2D_Start(&hdma2d,
+//                        0xF0FF, /* Color value in Register to Memory DMA2D mode */
+//                        (uint32_t)&aBufferResult,  /* DMA2D output buffer */
+//                        LAYER_SIZE_X, /* width of buffer in pixels */
+//                        LAYER_SIZE_Y); /* height of buffer in lines */
+//  printf("DMA start %d\n", res);
 //  assert(res == HAL_OK);
 
-//  int res;
-  // TODO what is the instance param? LCD_INSTANCES_NBR ?
-  // RGBA8888 format by default
-//  res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
-//  printf("Init %d\n", res);
-//  assert(res == 0);
-//  // FIXME needed? in demo, looks like it connects to Utilities/lcd/stm32_lcd.h
-////  UTIL_LCD_SetFuncDriver(&LCD_Driver);
-////  res = BSP_LCD_DisplayOn(0);
-////  printf("disp on %d\n", res);
-////  assert(res == 0);
-//  res = BSP_LCD_SetBrightness(0, 40);
-//  printf("set bright %d\n", res);
-//  assert(res == 0);
-//
-//  // FIXME rm
-////  res = BSP_LCD_SetActiveLayer(0, 0);
-////  assert(res == 0);
-////  res = BSP_LCD_SetLayerVisible(0, 0, ENABLE);
-////  assert(res == 0);
-//  res = BSP_LCD_FillRect(0, 20, 20, 100, 200, 0xFFAAEEAA);
-//  assert(res == 0);
-//  res = BSP_LCD_DrawHLine(0, 50, 300, 300, 0xFFFFFFFF);
-//  assert(res == 0);
-//  res = BSP_LCD_DrawHLine(0, 60, 360, 300, 0x0);
-//  assert(res == 0);
+  int res;
+//   TODO what is the instance param? LCD_INSTANCES_NBR ?
+//   RGBA8888 format by default
+  res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
+  printf("Init %d\n", res);
+  assert(res == 0);
+  // FIXME needed? in demo, looks like it connects to Utilities/lcd/stm32_lcd.h
+//  UTIL_LCD_SetFuncDriver(&LCD_Driver);
+  res = BSP_LCD_DisplayOn(0);
+  printf("disp on %d\n", res);
+  assert(res == 0);
+  res = BSP_LCD_SetBrightness(0, 40);
+  printf("set bright %d\n", res);
+  assert(res == 0);
+
+  // FIXME rm
+  res = BSP_LCD_SetActiveLayer(0, 0);
+  assert(res == 0);
+  res = BSP_LCD_SetLayerVisible(0, 0, ENABLE);
+  assert(res == 0);
+  res = BSP_LCD_FillRect(0, 20, 20, 100, 200, 0xFFAAEEAA);
+  assert(res == 0);
+  res = BSP_LCD_DrawHLine(0, 50, 300, 300, 0xFFFFFFFF);
+  assert(res == 0);
+  res = BSP_LCD_DrawHLine(0, 60, 360, 300, 0x0);
+  assert(res == 0);
 
 
   /* Infinite loop */

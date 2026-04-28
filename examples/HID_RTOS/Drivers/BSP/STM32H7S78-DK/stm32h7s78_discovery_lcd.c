@@ -444,13 +444,15 @@ __weak HAL_StatusTypeDef MX_LTDC_ClockConfig(LTDC_HandleTypeDef *hltdc)
   /* PLL3_VCO Output = PLL3_VCO Input * PLL3N = 16 Mhz * 25 = 400 */
   /* PLLLCDCLK = PLL3_VCO Output/PLL3R = 400/16 = 25Mhz */
   /* LTDC clock frequency = PLLLCDCLK = 25 Mhz */
-  rcc_oscinitstruct.PLL3.PLLState = RCC_PLL_ON;
 //  rcc_oscinitstruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
 //  rcc_oscinitstruct.HSIState = RCC_HSI_ON;
 //  rcc_oscinitstruct.HSIDiv = RCC_HSI_DIV1;
 //  rcc_oscinitstruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  rcc_oscinitstruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  rcc_oscinitstruct.HSEState = RCC_HSE_ON;
   rcc_oscinitstruct.PLL1.PLLState = RCC_PLL_NONE;
   rcc_oscinitstruct.PLL2.PLLState = RCC_PLL_NONE;
+  rcc_oscinitstruct.PLL3.PLLState = RCC_PLL_ON;
   rcc_oscinitstruct.PLL3.PLLSource = RCC_PLLSOURCE_HSE;
 //  rcc_oscinitstruct.PLL3.PLLM = 4;
 //  rcc_oscinitstruct.PLL3.PLLN = 25;
@@ -459,8 +461,18 @@ __weak HAL_StatusTypeDef MX_LTDC_ClockConfig(LTDC_HandleTypeDef *hltdc)
 //  rcc_oscinitstruct.PLL3.PLLR = 16;
 //  rcc_oscinitstruct.PLL3.PLLS = 1;
 //  rcc_oscinitstruct.PLL3.PLLT = 1;
-  rcc_oscinitstruct.PLL3.PLLM = 4;
-  rcc_oscinitstruct.PLL3.PLLN = 25;
+
+//  RCC_OscInitStruct.PLL3.PLLM = 6;
+//  RCC_OscInitStruct.PLL3.PLLN = 100;
+//  RCC_OscInitStruct.PLL3.PLLP = 2;
+//  RCC_OscInitStruct.PLL3.PLLQ = 20;
+//  RCC_OscInitStruct.PLL3.PLLR = 16;
+//  RCC_OscInitStruct.PLL3.PLLS = 2;
+//  RCC_OscInitStruct.PLL3.PLLT = 2;
+
+  /* HSE=24MHz: M=6 -> ref=4MHz, N=100 -> VCO=400MHz, R=16 -> PLL3R=25MHz (LTDC pixel clock) */
+  rcc_oscinitstruct.PLL3.PLLM = 6;
+  rcc_oscinitstruct.PLL3.PLLN = 100;
   rcc_oscinitstruct.PLL3.PLLP = 2;
   rcc_oscinitstruct.PLL3.PLLQ = 20;
   rcc_oscinitstruct.PLL3.PLLR = 16;

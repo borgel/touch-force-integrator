@@ -68,8 +68,6 @@ static void MX_GPIO_Init(void);
 static void MX_GPDMA1_Init(void);
 static void MX_UART4_Init(void);
 static void MX_UCPD1_Init(void);
-static void MX_DMA2D_Init(void);
-static void MX_LTDC_Init_Internal(void);
 void _USBH_Task(void *argument);
 
 /* USER CODE BEGIN PFP */
@@ -84,24 +82,6 @@ size_t __write(int file, unsigned char const *ptr, size_t len);
 #elif defined(__GNUC__)
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 #endif /* __ICCARM__ */
-
-
-DMA2D_HandleTypeDef hdma2d;
-
-LTDC_HandleTypeDef hltdc;
-
-#define LCD_ON_OFF_Pin GPIO_PIN_15
-#define LCD_ON_OFF_GPIO_Port GPIOE
-#define LCD_BACKLIGHT_Pin GPIO_PIN_15
-#define LCD_BACKLIGHT_GPIO_Port GPIOG
-
-/* USER CODE BEGIN Private defines */
-#define LAYER_SIZE_X            100
-#define LAYER_SIZE_Y            100
-#define LAYER_BYTE_PER_PIXEL    2 /* for format ARGB4444 */
-
-#define DISPLAY_WIDTH_PX 819
-#define DISPLAY_HEIGHT_PX 499
 
 /* USER CODE END PFP */
 
@@ -386,7 +366,6 @@ static void MX_UCPD1_Init(void)
   */
 static void MX_GPIO_Init(void)
 {
-  GPIO_InitTypeDef GPIO_InitStruct = {0};
 /* USER CODE BEGIN MX_GPIO_Init_1 */
 /* USER CODE END MX_GPIO_Init_1 */
 
@@ -395,128 +374,6 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOM_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
-
-  // FIXME rm
-//  __HAL_RCC_GPIOF_CLK_ENABLE();
-//  __HAL_RCC_GPIOG_CLK_ENABLE();
-//  __HAL_RCC_GPIOB_CLK_ENABLE();
-//  __HAL_RCC_GPIOE_CLK_ENABLE();
-//  __HAL_RCC_GPIOA_CLK_ENABLE();
-//
-//  /*Configure GPIO pin Output Level */
-//  HAL_GPIO_WritePin(LCD_ON_OFF_GPIO_Port, LCD_ON_OFF_Pin, GPIO_PIN_SET);
-//
-//  /*Configure GPIO pin Output Level */
-//  HAL_GPIO_WritePin(LCD_BACKLIGHT_GPIO_Port, LCD_BACKLIGHT_Pin, GPIO_PIN_SET);
-//
-//  /*Configure GPIO pin : LCD_ON_OFF_Pin */
-//  GPIO_InitStruct.Pin = LCD_ON_OFF_Pin;
-//  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-//  GPIO_InitStruct.Pull = GPIO_NOPULL;
-//  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-//  HAL_GPIO_Init(LCD_ON_OFF_GPIO_Port, &GPIO_InitStruct);
-//
-//  /*Configure GPIO pin : LCD_BACKLIGHT_Pin */
-//  GPIO_InitStruct.Pin = LCD_BACKLIGHT_Pin;
-//  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-//  GPIO_InitStruct.Pull = GPIO_NOPULL;
-//  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-//  HAL_GPIO_Init(LCD_BACKLIGHT_GPIO_Port, &GPIO_InitStruct);
-
-/* USER CODE BEGIN MX_GPIO_Init_2 */
-/* USER CODE END MX_GPIO_Init_2 */
-}
-
-/**
-  * @brief DMA2D Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_DMA2D_Init(void)
-{
-
-  /* USER CODE BEGIN DMA2D_Init 0 */
-
-  /* USER CODE END DMA2D_Init 0 */
-
-  /* USER CODE BEGIN DMA2D_Init 1 */
-
-  /* USER CODE END DMA2D_Init 1 */
-  hdma2d.Instance = DMA2D;
-  hdma2d.Init.Mode = DMA2D_R2M;
-  hdma2d.Init.ColorMode = DMA2D_OUTPUT_ARGB4444;    // 2 bytes, 4 bits each R/G/B/A
-  hdma2d.Init.OutputOffset = 0;
-  if (HAL_DMA2D_Init(&hdma2d) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN DMA2D_Init 2 */
-
-  /* USER CODE END DMA2D_Init 2 */
-
-}
-
-/**
-  * @brief LTDC Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_LTDC_Init_Internal(void)
-{
-
-  /* USER CODE BEGIN LTDC_Init 0 */
-
-  /* USER CODE END LTDC_Init 0 */
-
-  LTDC_LayerCfgTypeDef pLayerCfg = {0};
-
-  /* USER CODE BEGIN LTDC_Init 1 */
-
-  /* USER CODE END LTDC_Init 1 */
-  hltdc.Instance = LTDC;
-  hltdc.Init.HSPolarity = LTDC_HSPOLARITY_AL;
-  hltdc.Init.VSPolarity = LTDC_VSPOLARITY_AL;
-  hltdc.Init.DEPolarity = LTDC_DEPOLARITY_AL;
-  hltdc.Init.PCPolarity = LTDC_PCPOLARITY_IPC;
-  hltdc.Init.HorizontalSync = 3;
-  hltdc.Init.VerticalSync = 3;
-  hltdc.Init.AccumulatedHBP = 11;
-  hltdc.Init.AccumulatedVBP = 11;
-  // TODO make DISPLAY_HEIGHT_PX etc these values? seems like there's some overscan
-  hltdc.Init.AccumulatedActiveW = 811;
-  hltdc.Init.AccumulatedActiveH = 491;
-  hltdc.Init.TotalWidth = DISPLAY_WIDTH_PX;
-  hltdc.Init.TotalHeigh = DISPLAY_HEIGHT_PX;
-  hltdc.Init.Backcolor.Blue = 0;
-  hltdc.Init.Backcolor.Green = 0;
-  hltdc.Init.Backcolor.Red = 0;
-  if (HAL_LTDC_Init(&hltdc) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  pLayerCfg.WindowX0 = 0;
-  pLayerCfg.WindowX1 = 100;
-  pLayerCfg.WindowY0 = 0;
-  pLayerCfg.WindowY1 = 100;
-  pLayerCfg.PixelFormat = LTDC_PIXEL_FORMAT_RGB565;
-  pLayerCfg.Alpha = 255;
-  pLayerCfg.Alpha0 = 0;
-  pLayerCfg.BlendingFactor1 = LTDC_BLENDING_FACTOR1_CA;
-  pLayerCfg.BlendingFactor2 = LTDC_BLENDING_FACTOR2_CA;
-  pLayerCfg.FBStartAdress = 0;
-  pLayerCfg.ImageWidth = LAYER_SIZE_X;
-  pLayerCfg.ImageHeight = LAYER_SIZE_Y;
-  pLayerCfg.Backcolor.Blue = 0;
-  pLayerCfg.Backcolor.Green = 0;
-  pLayerCfg.Backcolor.Red = 0;
-  if (HAL_LTDC_ConfigLayer(&hltdc, &pLayerCfg, LTDC_LAYER_1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN LTDC_Init 2 */
-
-  /* USER CODE END LTDC_Init 2 */
-
 }
 
 /* USER CODE BEGIN 4 */
@@ -558,86 +415,20 @@ PUTCHAR_PROTOTYPE
   * @retval None
   */
 /* USER CODE END Header__USBH_Task */
-
-static void TransferComplete(DMA2D_HandleTypeDef *hdma2d)
-{
-  /* Turn LD1 On */
-  BSP_LED_On(LD1);
-}
-static void TransferError(DMA2D_HandleTypeDef *hdma2d)
-{
-  /* Turn LD2 On */
-  BSP_LED_On(LD2);
-}
-
-/* DMA2D output address in SRAM : this is the buffer displayed on LCD screen */
-// full resolution is ~800k, which is too large
-uint32_t aBufferResult[(LAYER_SIZE_X * LAYER_SIZE_Y * LAYER_BYTE_PER_PIXEL) / 4]__attribute__((aligned(16)));
-
 void _USBH_Task(void *argument)
 {
+  int res;
+
   /* USER CODE BEGIN 5 */
   MX_USB_HOST_Init();
 
-//  /* Set LTDC layer1 source address */
-//  // we are basically going to draw everything to this buffer
-//  HAL_LTDC_SetAddress(&hltdc, (uint32_t)(&aBufferResult), LTDC_LAYER_1);
-//
-//  /*## DMA2D Callbacks Configuration ######################################*/
-//  hdma2d.XferCpltCallback  = TransferComplete;
-//  hdma2d.XferErrorCallback = TransferError;
-//
-//  /*## Start DMA2D transfer ###############################################*/
-//  int res = HAL_DMA2D_Start(&hdma2d,
-//                        0xF0FF, /* Color value in Register to Memory DMA2D mode */
-//                        (uint32_t)&aBufferResult,  /* DMA2D output buffer */
-//                        LAYER_SIZE_X, /* width of buffer in pixels */
-//                        LAYER_SIZE_Y); /* height of buffer in lines */
-//  printf("DMA start %d\n", res);
-//  assert(res == HAL_OK);
-
-  int res;
-//   TODO what is the instance param? LCD_INSTANCES_NBR ?
-//   RGB888 format by default
   res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
-//  printf("Init %d\n", res);
   assert(res == 0);
-  // FIXME needed? in demo, looks like it connects to Utilities/lcd/stm32_lcd.h
+  // connect our lower level LCD functions to the higher level driver
   UTIL_LCD_SetFuncDriver(&LCD_Driver);
   UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
 
   UTIL_LCD_FillRect(10, 10, 300, 300, UTIL_LCD_COLOR_BLUE);
-//  res = BSP_LCD_DisplayOn(0);
-//  printf("disp on %d\n", res);
-//  assert(res == 0);
-//  res = BSP_LCD_SetBrightness(0, 40);
-//  printf("set bright %d\n", res);
-//  assert(res == 0);
-//
-//  // FIXME rm
-//  res = BSP_LCD_SetActiveLayer(0, 0);
-//  assert(res == 0);
-//  res = BSP_LCD_SetLayerVisible(0, 0, ENABLE);
-//  assert(res == 0);
-//
-//  /* Framebuffer lives in XSPI memory at 0x90000000 and is not zeroed by
-//   * the C runtime, so it boots with undefined contents (visible as noise).
-//   * DMA2D fill bypasses the CPU cache, so no cache maintenance is needed. */
-//  {
-//    uint32_t xsize = 0, ysize = 0;
-//    BSP_LCD_GetXSize(0, &xsize);
-//    BSP_LCD_GetYSize(0, &ysize);
-//    res = BSP_LCD_FillRect(0, 0, 0, xsize, ysize, 0xFF000000);
-//    assert(res == 0);
-//  }
-//
-//  res = BSP_LCD_FillRect(0, 20, 20, 100, 200, 0xFF0000FF);
-//  assert(res == 0);
-//  res = BSP_LCD_DrawHLine(0, 50, 300, 300, 0xFFFFFFFF);
-//  assert(res == 0);
-//  res = BSP_LCD_DrawHLine(0, 60, 360, 300, 0xFF00FF00);
-//  assert(res == 0);
-
 
   /* Infinite loop */
   for(;;)

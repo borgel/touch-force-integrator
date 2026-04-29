@@ -182,6 +182,14 @@ extern "C" {
 /** @defgroup STM32H7S78_DK_LCD_Exported_Types STM32H7S78_DK LCD Exported Types
   * @{
   */
+
+typedef enum {
+  LCD_FRAMEBUFFER_ERR = 0,
+  LCD_FRAMEBUFFER_A,
+  LCD_FRAMEBUFFER_B,
+} BSP_LCD_Framebuffer_t;
+
+// this has N instances, one for each LCD instance
 typedef struct
 {
   uint32_t XSize;
@@ -192,8 +200,15 @@ typedef struct
   uint32_t IsMspCallbacksValid;
   uint32_t ReloadEnable;
   uint32_t Brightness;
+
+  uint32_t ActiveLayerFBStartAddress[2];    // Active draw buffer address for each layer
+
+  // TODO this assumes always layer 0 ! add an array of layer config if we need both
+  BSP_LCD_Framebuffer_t FramebufferDrawing; // which buffer is the current draw target (default A)
+  BSP_LCD_Framebuffer_t FramebufferVisible; // which buffer is currently visible (default A)
 } BSP_LCD_Ctx_t;
 
+// only used during setup and full layer config
 typedef struct
 {
   uint32_t X0;
@@ -201,7 +216,7 @@ typedef struct
   uint32_t Y0;
   uint32_t Y1;
   uint32_t PixelFormat;
-  uint32_t Address;
+  uint32_t Address;                         // memory addr of visible framebuffer
 } MX_LTDC_LayerConfig_t;
 
 #define BSP_LCD_LayerConfig_t MX_LTDC_LayerConfig_t
@@ -242,6 +257,17 @@ int32_t BSP_LCD_DeInit(uint32_t Instance);
 int32_t BSP_LCD_RegisterDefaultMspCallbacks(uint32_t Instance);
 int32_t BSP_LCD_RegisterMspCallbacks(uint32_t Instance, BSP_LCD_Cb_t *CallBacks);
 #endif /*(USE_HAL_LTDC_REGISTER_CALLBACKS == 1) */
+
+/* APIs for using double buffering on layer 0 */
+// setup double buffering (if not called, will work with single buffering as-is)
+void BSP_LCD_EnableDoubleBuffering(uint32_t const instance);
+// swap the background buffer being drawn to
+void BSP_LCD_SwapDrawBuffer(uint32_t const instance);
+// swap between the A and B frame buffers
+void BSP_LCD_SwapVisibleBuffer(uint32_t const instance);
+// APIs for manual control if you need it
+void BSP_LCD_SetDrawBuffer(uint32_t const instance, BSP_LCD_Framebuffer_t const targetFramebuffer);
+void BSP_LCD_SetVisibleBuffer(uint32_t const instance, BSP_LCD_Framebuffer_t const targetFramebuffer);
 
 /* LCD specific APIs: Layer control & LCD HW reset */
 int32_t BSP_LCD_Reload(uint32_t Instance, uint32_t ReloadType);

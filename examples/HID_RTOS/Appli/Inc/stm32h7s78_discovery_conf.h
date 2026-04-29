@@ -37,6 +37,9 @@ extern "C" {
 
 #define LCD_LAYER_0_ADDRESS                 0x90000000U
 #define LCD_LAYER_1_ADDRESS                 0x90200000U
+// double buffer backing addrs
+#define LCD_LAYER_0B_ADDRESS                0x90400000U
+#define LCD_LAYER_1B_ADDRESS                0x90600000U
 
 /* Default Audio IN internal buffer size */
 #define DEFAULT_AUDIO_IN_BUFFER_SIZE        2048U

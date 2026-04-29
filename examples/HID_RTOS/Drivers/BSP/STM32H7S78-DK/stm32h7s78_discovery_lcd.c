@@ -160,6 +160,8 @@ static void LPTIMx_PWM_MspInit(LPTIM_HandleTypeDef *hlptim);
 static void LPTIMx_PWM_MspDeInit(LPTIM_HandleTypeDef *hlptim);
 static void LPTIMx_PWM_DeInit(LPTIM_HandleTypeDef *hlptim);
 static void LPTIMx_PWM_Init(LPTIM_HandleTypeDef *hlptim);
+
+static uint32_t getAddressForFb(BSP_LCD_Framebuffer_t const fb);
 /**
   * @}
   */
@@ -238,6 +240,11 @@ int32_t BSP_LCD_InitEx(uint32_t Instance, uint32_t Orientation, uint32_t PixelFo
     hlcd_ltdc.Instance = LTDC;
     hlcd_dma2d.Instance = DMA2D;
 
+    // setup buffers for double buffering
+    Lcd_Ctx[Instance].FramebufferDrawing = LCD_FRAMEBUFFER_A;
+    Lcd_Ctx[Instance].FramebufferVisible = LCD_FRAMEBUFFER_A;
+    BSP_LCD_SetDrawBuffer(0, Lcd_Ctx[Instance].FramebufferDrawing);
+
     /* MSP initialization */
 #if (USE_HAL_LTDC_REGISTER_CALLBACKS == 1)
     /* Register the LTDC MSP Callbacks */
@@ -292,7 +299,7 @@ int32_t BSP_LCD_InitEx(uint32_t Instance, uint32_t Orientation, uint32_t PixelFo
         config.Y0          = 0;
         config.Y1          = Height;
         config.PixelFormat = ltdc_pixel_format;
-        config.Address     = LCD_LAYER_0_ADDRESS;
+        config.Address     = Lcd_Ctx[Instance].ActiveLayerFBStartAddress[0];
 
         if (MX_LTDC_ConfigLayer(&hlcd_ltdc, 0, &config) != HAL_OK)
         {
@@ -1036,7 +1043,7 @@ int32_t BSP_LCD_DrawBitmap(uint32_t Instance, uint32_t Xpos, uint32_t Ypos, uint
   bit_pixel = (uint32_t)pBmp[28] + ((uint32_t)pBmp[29] << 8);
 
   /* Set the address */
-  Address = hlcd_ltdc.LayerCfg[Lcd_Ctx[Instance].ActiveLayer].FBStartAdress + (((Lcd_Ctx[Instance].XSize*Ypos) + Xpos)*Lcd_Ctx[Instance].BppFactor);
+  Address = Lcd_Ctx[Instance].ActiveLayerFBStartAddress[Lcd_Ctx[Instance].ActiveLayer] + (((Lcd_Ctx[Instance].XSize*Ypos) + Xpos)*Lcd_Ctx[Instance].BppFactor);
 
   /* Get the layer pixel format */
   if ((bit_pixel/8U) == 4U)
@@ -1089,7 +1096,7 @@ int32_t BSP_LCD_FillRGBRect(uint32_t Instance, uint32_t Xpos, uint32_t Ypos, uin
   for(i = 0; i < Height; i++)
   {
     /* Get the line address */
-    Xaddress = hlcd_ltdc.LayerCfg[Lcd_Ctx[Instance].ActiveLayer].FBStartAdress + (Lcd_Ctx[Instance].BppFactor*((Lcd_Ctx[Instance].XSize*(Ypos + i)) + Xpos));
+    Xaddress = Lcd_Ctx[Instance].ActiveLayerFBStartAddress[Lcd_Ctx[Instance].ActiveLayer] + (Lcd_Ctx[Instance].BppFactor*((Lcd_Ctx[Instance].XSize*(Ypos + i)) + Xpos));
 
 #if (USE_BSP_CPU_CACHE_MAINTENANCE == 1)
     SCB_CleanDCache_by_Addr((uint32_t *)pdata, Lcd_Ctx[Instance].BppFactor*Lcd_Ctx[Instance].XSize);
@@ -1136,7 +1143,7 @@ int32_t BSP_LCD_DrawHLine(uint32_t Instance, uint32_t Xpos, uint32_t Ypos, uint3
   uint32_t  Xaddress;
 
   /* Get the line address */
-  Xaddress = hlcd_ltdc.LayerCfg[Lcd_Ctx[Instance].ActiveLayer].FBStartAdress + (Lcd_Ctx[Instance].BppFactor*((Lcd_Ctx[Instance].XSize*Ypos) + Xpos));
+  Xaddress = Lcd_Ctx[Instance].ActiveLayerFBStartAddress[Lcd_Ctx[Instance].ActiveLayer] + (Lcd_Ctx[Instance].BppFactor*((Lcd_Ctx[Instance].XSize*Ypos) + Xpos));
 
   /* Write line */
   LL_FillBuffer(Instance, (uint32_t *)Xaddress, Length, 1, 0, Color);
@@ -1158,7 +1165,7 @@ int32_t BSP_LCD_DrawVLine(uint32_t Instance, uint32_t Xpos, uint32_t Ypos, uint3
   uint32_t  Xaddress;
 
   /* Get the line address */
-  Xaddress = (hlcd_ltdc.LayerCfg[Lcd_Ctx[Instance].ActiveLayer].FBStartAdress) + (Lcd_Ctx[Instance].BppFactor*((Lcd_Ctx[Instance].XSize*Ypos) + Xpos));
+  Xaddress = (Lcd_Ctx[Instance].ActiveLayerFBStartAddress[Lcd_Ctx[Instance].ActiveLayer]) + (Lcd_Ctx[Instance].BppFactor*((Lcd_Ctx[Instance].XSize*Ypos) + Xpos));
 
   /* Write line */
   LL_FillBuffer(Instance, (uint32_t *)Xaddress, 1, Length, (Lcd_Ctx[Instance].XSize - 1U), Color);
@@ -1181,7 +1188,7 @@ int32_t BSP_LCD_FillRect(uint32_t Instance, uint32_t Xpos, uint32_t Ypos, uint32
   uint32_t  Xaddress;
 
   /* Get the rectangle start address */
-  Xaddress = (hlcd_ltdc.LayerCfg[Lcd_Ctx[Instance].ActiveLayer].FBStartAdress) + (Lcd_Ctx[Instance].BppFactor*((Lcd_Ctx[Instance].XSize*Ypos) + Xpos));
+  Xaddress = (Lcd_Ctx[Instance].ActiveLayerFBStartAddress[Lcd_Ctx[Instance].ActiveLayer]) + (Lcd_Ctx[Instance].BppFactor*((Lcd_Ctx[Instance].XSize*Ypos) + Xpos));
 
   /* Fill the rectangle */
   LL_FillBuffer(Instance, (uint32_t *)Xaddress, Width, Height, (Lcd_Ctx[Instance].XSize - Width), Color);
@@ -1202,12 +1209,12 @@ int32_t BSP_LCD_ReadPixel(uint32_t Instance, uint32_t Xpos, uint32_t Ypos, uint3
   if (hlcd_ltdc.LayerCfg[Lcd_Ctx[Instance].ActiveLayer].PixelFormat == LTDC_PIXEL_FORMAT_ARGB8888)
   {
     /* Read data value from RAM memory */
-    *Color = *(__IO uint32_t*) (hlcd_ltdc.LayerCfg[Lcd_Ctx[Instance].ActiveLayer].FBStartAdress + (4U*((Ypos*Lcd_Ctx[Instance].XSize) + Xpos)));
+    *Color = *(__IO uint32_t*) (Lcd_Ctx[Instance].ActiveLayerFBStartAddress[Lcd_Ctx[Instance].ActiveLayer] + (4U*((Ypos*Lcd_Ctx[Instance].XSize) + Xpos)));
   }
   else /* if ((hlcd_ltdc.LayerCfg[layer].PixelFormat == LTDC_PIXEL_FORMAT_RGB565) */
   {
     /* Read data value from RAM memory */
-    *Color = *(__IO uint16_t*) (hlcd_ltdc.LayerCfg[Lcd_Ctx[Instance].ActiveLayer].FBStartAdress + (2U*((Ypos*Lcd_Ctx[Instance].XSize) + Xpos)));
+    *Color = *(__IO uint16_t*) (Lcd_Ctx[Instance].ActiveLayerFBStartAddress[Lcd_Ctx[Instance].ActiveLayer] + (2U*((Ypos*Lcd_Ctx[Instance].XSize) + Xpos)));
   }
 
   return BSP_ERROR_NONE;
@@ -1226,12 +1233,12 @@ int32_t BSP_LCD_WritePixel(uint32_t Instance, uint32_t Xpos, uint32_t Ypos, uint
   if (hlcd_ltdc.LayerCfg[Lcd_Ctx[Instance].ActiveLayer].PixelFormat == LTDC_PIXEL_FORMAT_ARGB8888)
   {
     /* Write data value to RAM memory */
-    *(__IO uint32_t*) (hlcd_ltdc.LayerCfg[Lcd_Ctx[Instance].ActiveLayer].FBStartAdress + (4U*((Ypos*Lcd_Ctx[Instance].XSize) + Xpos))) = Color;
+    *(__IO uint32_t*) (Lcd_Ctx[Instance].ActiveLayerFBStartAddress[Lcd_Ctx[Instance].ActiveLayer] + (4U*((Ypos*Lcd_Ctx[Instance].XSize) + Xpos))) = Color;
   }
   else
   {
     /* Write data value to RAM memory */
-    *(__IO uint16_t*) (hlcd_ltdc.LayerCfg[Lcd_Ctx[Instance].ActiveLayer].FBStartAdress + (2U*((Ypos*Lcd_Ctx[Instance].XSize) + Xpos))) = (uint16_t)Color;
+    *(__IO uint16_t*) (Lcd_Ctx[Instance].ActiveLayerFBStartAddress[Lcd_Ctx[Instance].ActiveLayer] + (2U*((Ypos*Lcd_Ctx[Instance].XSize) + Xpos))) = (uint16_t)Color;
   }
 
   return BSP_ERROR_NONE;
@@ -1336,6 +1343,75 @@ static void LL_ConvertLineToRGB(uint32_t Instance, uint32_t *pSrc, uint32_t *pDs
       }
     }
   }
+}
+
+
+void BSP_LCD_EnableDoubleBuffering(uint32_t const instance) {
+  // TODO I don't think these filters are needed anymore, remove them
+  assert(instance == 0);
+
+  BSP_LCD_SetVisibleBuffer(instance, LCD_FRAMEBUFFER_A);
+  BSP_LCD_SetDrawBuffer(instance, LCD_FRAMEBUFFER_B);
+}
+
+// swap the background buffer being drawn to
+void BSP_LCD_SwapDrawBuffer(uint32_t const instance) {
+  assert(instance == 0);
+  assert(Lcd_Ctx[instance].ActiveLayer == 0);
+
+  if(Lcd_Ctx[instance].FramebufferVisible == LCD_FRAMEBUFFER_A) {
+    Lcd_Ctx[instance].FramebufferDrawing = LCD_FRAMEBUFFER_B;
+  }
+  else if(Lcd_Ctx[instance].FramebufferVisible == LCD_FRAMEBUFFER_B) {
+    Lcd_Ctx[instance].FramebufferDrawing = LCD_FRAMEBUFFER_A;
+  }
+  else {
+    assert(0);
+  }
+  BSP_LCD_SetDrawBuffer(instance, Lcd_Ctx[instance].FramebufferDrawing);
+}
+
+// swap between the A and B frame buffers
+void BSP_LCD_SwapVisibleBuffer(uint32_t const instance) {
+  assert(instance == 0);
+  assert(Lcd_Ctx[instance].ActiveLayer == 0);
+
+  if(Lcd_Ctx[instance].FramebufferVisible == LCD_FRAMEBUFFER_A) {
+    Lcd_Ctx[instance].FramebufferVisible = LCD_FRAMEBUFFER_B;
+  }
+  else if(Lcd_Ctx[instance].FramebufferVisible == LCD_FRAMEBUFFER_B) {
+    Lcd_Ctx[instance].FramebufferVisible = LCD_FRAMEBUFFER_A;
+  }
+  else {
+    assert(0);
+  }
+  BSP_LCD_SetVisibleBuffer(instance, Lcd_Ctx[instance].FramebufferVisible);
+}
+
+static uint32_t getAddressForFb(BSP_LCD_Framebuffer_t const fb) {
+  if(fb == LCD_FRAMEBUFFER_A) {
+    return LCD_LAYER_0_ADDRESS;
+  }
+  return LCD_LAYER_0B_ADDRESS;
+}
+
+// APIs for manual control if you need it
+void BSP_LCD_SetDrawBuffer(uint32_t const instance, BSP_LCD_Framebuffer_t const targetFramebuffer) {
+  assert(instance == 0);
+  assert(Lcd_Ctx[instance].ActiveLayer == 0);
+
+  unsigned const layer = Lcd_Ctx[instance].ActiveLayer;
+  Lcd_Ctx[instance].ActiveLayerFBStartAddress[layer] = getAddressForFb(targetFramebuffer);
+}
+
+void BSP_LCD_SetVisibleBuffer(uint32_t const instance, BSP_LCD_Framebuffer_t const targetFramebuffer) {
+  assert(instance == 0);
+  assert(Lcd_Ctx[instance].ActiveLayer == 0);
+
+  // swap the new buffer into the LTCD
+  BSP_LCD_SetLayerAddress(instance,
+                          Lcd_Ctx[instance].ActiveLayer,
+                          getAddressForFb(targetFramebuffer));
 }
 
 /**

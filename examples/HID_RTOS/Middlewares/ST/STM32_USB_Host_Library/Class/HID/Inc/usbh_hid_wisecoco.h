@@ -58,8 +58,10 @@ struct USBH_WCSingleFinger {
 };
 
 struct USBH_LatestWisecocoData {
-  // how many fingers were down the last time we got a frame
+  // how many fingers were reported in any state the last time we got a frame
   unsigned liveTouches;
+  // how many fingers were touched down in this frame
+  unsigned tipsTouchedDown;
   // array of latest data for each touch. Take care to only access index 0-liveTouches,
   // as anything above that will be unitialized and not meaningful
   struct USBH_WCSingleFinger fingers[MAX_TOUCHES];

@@ -454,22 +454,21 @@ void _USBH_Task(void *argument)
       // draw a box for every finger
       latestTouches = USBH_HID_WisecocoGetLatestTouches();
 
-      BSP_LCD_SwapDrawBuffer(0);
       UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
 
       // draw a background rect at the same aspect ratio as the display
       UTIL_LCD_FillRect(0, 0, 360, 480, 0xFFFFFFFF);
 
-      // a bar indicating the number of fingers
-      UTIL_LCD_FillRect(LCD_DEFAULT_WIDTH - 10, 0, 10, 10 * latestTouches->liveTouches, 0xFFFFFFFF);
-
       // draw a square at each finger location
       for(unsigned i = 0; i < latestTouches->liveTouches; i++) {
         struct USBH_WCSingleFinger const * const f = &latestTouches->fingers[i];
-        // these will be offset, but we're fine with that for now
-        UTIL_LCD_FillRect(f->xFrac * 360, f->yFrac * 480, 5, 5, 0xFF000000);
+        if(f->touching) {
+          // these will be offset, but we're fine with that for now
+          UTIL_LCD_FillRect(f->xFrac * 360, f->yFrac * 480, 5, 5, 0xFF000000);
+        }
       }
       BSP_LCD_SwapVisibleBuffer(0);
+      BSP_LCD_SwapDrawBuffer(0);
     }
   }
   /* USER CODE END 5 */

@@ -535,10 +535,12 @@ void USBH_HID_PumpTouchReports(USBH_HandleTypeDef *phost) {
   // else, report is 1 (the main one)
 
   latestData.liveTouches = HID_ReadItem((HID_Report_ItemTypedef*) &prop_contact_count, 0);
+  latestData.tipsTouchedDown = 0;
+
   for(int i = 0; i < latestData.liveTouches; i++) {
     // last param is index, if there is more than one
     latestData.fingers[i].touching = HID_ReadItem((HID_Report_ItemTypedef*) &prop_tip[i], 0);
-    // FIXME why doesn this need to be >> 2?
+    // FIXME why does this need to be >> 2?
     latestData.fingers[i].id = HID_ReadItem((HID_Report_ItemTypedef*) &prop_contact_id[i], 0);
     latestData.fingers[i].patchWidth = HID_ReadItem((HID_Report_ItemTypedef*) &prop_width[i], 0);
     latestData.fingers[i].patchHeight = HID_ReadItem((HID_Report_ItemTypedef*) &prop_height[i], 0);
@@ -551,6 +553,9 @@ void USBH_HID_PumpTouchReports(USBH_HandleTypeDef *phost) {
 
     // how many microseconds has it been since the first touch of the current group began
     latestData.fingers[i].touchDuration = HID_ReadItem((HID_Report_ItemTypedef*)&prop_scan_time, 0);
+
+    // update the total number of fingers down in this frame
+    latestData.tipsTouchedDown += latestData.fingers[i].touching;
   }
 
   return;

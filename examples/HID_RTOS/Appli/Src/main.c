@@ -30,6 +30,8 @@
 #include "stm32h7s78_discovery.h"
 #include "stm32h7s78_discovery_lcd.h"
 
+#include "usbh_hid_wisecoco.h"
+
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -130,8 +132,6 @@ int main(void)
   MX_GPDMA1_Init();
   MX_UART4_Init();
   MX_UCPD1_Init();
-//  MX_DMA2D_Init();
-//  MX_LTDC_Init_Internal();
   /* USER CODE BEGIN 2 */
   /* USER CODE END 2 */
 
@@ -424,20 +424,52 @@ void _USBH_Task(void *argument)
 
   res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
   assert(res == 0);
+  BSP_LCD_Reload(0, BSP_LCD_RELOAD_VERTICAL_BLANKING);
+
   // connect our lower level LCD functions to the higher level driver
   UTIL_LCD_SetFuncDriver(&LCD_Driver);
   UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
 
   UTIL_LCD_FillRect(10, 10, 300, 300, UTIL_LCD_COLOR_BLUE);
 
-  /* Infinite loop */
+  UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_GREEN);
+  UTIL_LCD_SetFont(&Font16);
+  UTIL_LCD_DisplayStringAt(350, 20, (uint8_t*)"Boop", LEFT_MODE);
+
+  struct USBH_LatestWisecocoData const * latestTouches;
+
+  uint32_t lastUpdate;
   for(;;)
   {
     /* USB Host Background task */
     MX_USB_HOST_Process();
     /* HID Menu Process */
     HID_Process();
-    osDelay(1);
+
+    if(HAL_GetTick() - lastUpdate > 50) {
+      lastUpdate = HAL_GetTick();
+
+      // TODO draw a dot for every finger
+      latestTouches = USBH_HID_WisecocoGetLatestTouches();
+
+      UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
+
+      // draw a background rect at the same aspect ratio as the display
+      UTIL_LCD_FillRect(0, 0, 360, 480, 0xFFFFFFFF);
+
+      // a bar indicating the number of fingers
+      UTIL_LCD_FillRect(LCD_DEFAULT_WIDTH - 10, 0, 10, 10 * latestTouches->liveTouches, 0xFFFFFFFF);
+
+      // draw a square at each finger location
+      for(unsigned i = 0; i < latestTouches->liveTouches; i++) {
+        struct USBH_WCSingleFinger const * const f = &latestTouches->fingers[i];
+        // these will be offset, but we're fine with that for now
+        UTIL_LCD_FillRect(f->xFrac * 360, f->yFrac * 480, 5, 5, 0xFF000000);
+      }
+    }
+
+    // TODO rm this, and make it all driven by OS queues/events
+//    osDelay(1);
   }
   /* USER CODE END 5 */
 }

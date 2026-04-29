@@ -232,6 +232,9 @@ extern "C" {
 #define USE_HAL_WWDG_REGISTER_CALLBACKS       0U
 #define USE_HAL_XSPI_REGISTER_CALLBACKS       0U
 
+#define USE_HAL_DMA2D_REGISTER_CALLBACKS      1U
+#define USE_HAL_LTDC_REGISTER_CALLBACKS       1U
+
 /* ################## SPI peripheral configuration ########################## */
 
 /* CRC FEATURE: Use to activate CRC feature inside HAL SPI Driver

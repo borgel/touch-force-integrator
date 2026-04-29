@@ -280,11 +280,8 @@ void HID_KEYBRD_App(USBH_HandleTypeDef *phost)
 }
 
 void HID_Wisecoco_App(USBH_HandleTypeDef *phost) {
-  struct USBH_LatestWisecocoData newData;
-  //TODO
-  if(USBH_HID_GetTouchReport(phost, &newData)) {
-    printf("Touch x = %d\n", newData.x);
-  }
+  //timeshare with the touch driver to pump it
+  USBH_HID_PumpTouchReports(phost);
 }
 /* USER CODE END 2 */
 

@@ -39,6 +39,9 @@ extern "C" {
 #include "../Components/rk050hr18/rk050hr18.h"
 #endif
 #include "../Components/Common/lcd.h"
+
+#define USE_DMA2D_TO_FILL_RGB_RECT      1U
+
 /** @addtogroup BSP
   * @{
   */

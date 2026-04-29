@@ -34,9 +34,24 @@
 	</natures>
 	<linkedResources>
 		<link>
+			<name>Utilities</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link>
+		<link>
 			<name>Doc/README.md</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/README.md</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link>
+		<link>
+			<name>Utilities/lcd</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
 		</link>
 		<link>
 			<name>Application/User/freertos.c</name>
@@ -419,6 +434,76 @@
 			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_pipes.c</locationURI>
 		</link>
 		<link>
+			<name>Utilities/Fonts/LICENSE.md</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/LICENSE.md</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/Release_Notes.html</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/Release_Notes.html</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/_htmresc</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/font12.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/font12.c</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/font16.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/font16.c</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/font20.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/font20.c</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/font24.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/font24.c</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/font8.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/font8.c</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/fonts.h</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/fonts.h</locationURI>
+		</link>
+		<link>
+			<name>Utilities/lcd/LICENSE.md</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/LICENSE.md</locationURI>
+		</link>
+		<link>
+			<name>Utilities/lcd/Release_Notes.html</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/Release_Notes.html</locationURI>
+		</link>
+		<link>
+			<name>Utilities/lcd/_htmresc</name>
+			<type>2</type>
+			<locationURI>virtual:/virtual</locationURI>
+		</link>
+		<link>
+			<name>Utilities/lcd/stm32_lcd.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/stm32_lcd.c</locationURI>
+		</link>
+		<link>
+			<name>Utilities/lcd/stm32_lcd.h</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/stm32_lcd.h</locationURI>
+		</link>
+		<link>
 			<name>Drivers/BSP/Components/aps256xx.c</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Drivers/BSP/Components/aps256xx/aps256xx.c</locationURI>
@@ -462,6 +547,56 @@
 			<name>Drivers/BSP/STM32H7S78-DK/stm32h7s78_discovery_xspi.c</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Drivers/BSP/STM32H7S78-DK/stm32h7s78_discovery_xspi.c</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/_htmresc/Add button.svg</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/_htmresc/Add%20button.svg</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/_htmresc/Update.svg</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/_htmresc/Update.svg</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/_htmresc/favicon.png</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/_htmresc/favicon.png</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/_htmresc/mini-st_2020.css</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/_htmresc/mini-st_2020.css</locationURI>
+		</link>
+		<link>
+			<name>Utilities/Fonts/_htmresc/st_logo_2020.png</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/_htmresc/st_logo_2020.png</locationURI>
+		</link>
+		<link>
+			<name>Utilities/lcd/_htmresc/Add button.svg</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/_htmresc/Add%20button.svg</locationURI>
+		</link>
+		<link>
+			<name>Utilities/lcd/_htmresc/Update.svg</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/_htmresc/Update.svg</locationURI>
+		</link>
+		<link>
+			<name>Utilities/lcd/_htmresc/favicon.png</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/_htmresc/favicon.png</locationURI>
+		</link>
+		<link>
+			<name>Utilities/lcd/_htmresc/mini-st_2020.css</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/_htmresc/mini-st_2020.css</locationURI>
+		</link>
+		<link>
+			<name>Utilities/lcd/_htmresc/st_logo_2020.png</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/_htmresc/st_logo_2020.png</locationURI>
 		</link>
 	</linkedResources>
 </projectDescription>

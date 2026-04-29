@@ -26,6 +26,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "usb_host.h"
+#include "stm32_lcd.h"
 #include "stm32h7s78_discovery.h"
 #include "stm32h7s78_discovery_lcd.h"
 
@@ -599,40 +600,43 @@ void _USBH_Task(void *argument)
 //   TODO what is the instance param? LCD_INSTANCES_NBR ?
 //   RGB888 format by default
   res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
-  printf("Init %d\n", res);
+//  printf("Init %d\n", res);
   assert(res == 0);
   // FIXME needed? in demo, looks like it connects to Utilities/lcd/stm32_lcd.h
-//  UTIL_LCD_SetFuncDriver(&LCD_Driver);
-  res = BSP_LCD_DisplayOn(0);
-  printf("disp on %d\n", res);
-  assert(res == 0);
-  res = BSP_LCD_SetBrightness(0, 40);
-  printf("set bright %d\n", res);
-  assert(res == 0);
+  UTIL_LCD_SetFuncDriver(&LCD_Driver);
+  UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
 
-  // FIXME rm
-  res = BSP_LCD_SetActiveLayer(0, 0);
-  assert(res == 0);
-  res = BSP_LCD_SetLayerVisible(0, 0, ENABLE);
-  assert(res == 0);
-
-  /* Framebuffer lives in XSPI memory at 0x90000000 and is not zeroed by
-   * the C runtime, so it boots with undefined contents (visible as noise).
-   * DMA2D fill bypasses the CPU cache, so no cache maintenance is needed. */
-  {
-    uint32_t xsize = 0, ysize = 0;
-    BSP_LCD_GetXSize(0, &xsize);
-    BSP_LCD_GetYSize(0, &ysize);
-    res = BSP_LCD_FillRect(0, 0, 0, xsize, ysize, 0xFF000000);
-    assert(res == 0);
-  }
-
-  res = BSP_LCD_FillRect(0, 20, 20, 100, 200, 0xFF0000FF);
-  assert(res == 0);
-  res = BSP_LCD_DrawHLine(0, 50, 300, 300, 0xFFFFFFFF);
-  assert(res == 0);
-  res = BSP_LCD_DrawHLine(0, 60, 360, 300, 0xFF00FF00);
-  assert(res == 0);
+  UTIL_LCD_FillRect(10, 10, 300, 300, UTIL_LCD_COLOR_BLUE);
+//  res = BSP_LCD_DisplayOn(0);
+//  printf("disp on %d\n", res);
+//  assert(res == 0);
+//  res = BSP_LCD_SetBrightness(0, 40);
+//  printf("set bright %d\n", res);
+//  assert(res == 0);
+//
+//  // FIXME rm
+//  res = BSP_LCD_SetActiveLayer(0, 0);
+//  assert(res == 0);
+//  res = BSP_LCD_SetLayerVisible(0, 0, ENABLE);
+//  assert(res == 0);
+//
+//  /* Framebuffer lives in XSPI memory at 0x90000000 and is not zeroed by
+//   * the C runtime, so it boots with undefined contents (visible as noise).
+//   * DMA2D fill bypasses the CPU cache, so no cache maintenance is needed. */
+//  {
+//    uint32_t xsize = 0, ysize = 0;
+//    BSP_LCD_GetXSize(0, &xsize);
+//    BSP_LCD_GetYSize(0, &ysize);
+//    res = BSP_LCD_FillRect(0, 0, 0, xsize, ysize, 0xFF000000);
+//    assert(res == 0);
+//  }
+//
+//  res = BSP_LCD_FillRect(0, 20, 20, 100, 200, 0xFF0000FF);
+//  assert(res == 0);
+//  res = BSP_LCD_DrawHLine(0, 50, 300, 300, 0xFFFFFFFF);
+//  assert(res == 0);
+//  res = BSP_LCD_DrawHLine(0, 60, 360, 300, 0xFF00FF00);
+//  assert(res == 0);
 
 
   /* Infinite loop */

@@ -65,6 +65,8 @@
 									<listOptionValue builtIn="false" value="../../../Drivers/CMSIS/Include"/>
 									<listOptionValue builtIn="false" value="../../../Drivers/BSP/STM32H7S78-DK"/>
 									<listOptionValue builtIn="false" value="../../../Drivers/BSP/Components/tcpp0203"/>
+									<listOptionValue builtIn="false" value="../../../Drivers/BSP/Components/Common"/>
+									<listOptionValue builtIn="false" value="../../../Utilities/lcd"/>
 								</option>
 								<option id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.warnings.w_switch_enum.1421941327" name="Warn if switch is used on an enum type and the switch statement lacks case for some enumerations (-Wswitch-enum)" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.warnings.w_switch_enum" useByScannerDiscovery="false" value="false" valueType="boolean"/>
 								<option id="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.warnings.w_switch_default.924981464" name="Warn when a switch statement does not have a default case (-Wswitch-default)" superClass="com.st.stm32cube.ide.mcu.gnu.managedbuild.tool.c.compiler.option.warnings.w_switch_default" useByScannerDiscovery="false" value="false" valueType="boolean"/>

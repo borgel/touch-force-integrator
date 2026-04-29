@@ -425,6 +425,7 @@ void _USBH_Task(void *argument)
   res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
   assert(res == 0);
   BSP_LCD_Reload(0, BSP_LCD_RELOAD_VERTICAL_BLANKING);
+  BSP_LCD_EnableDoubleBuffering(0);
 
   // connect our lower level LCD functions to the higher level driver
   UTIL_LCD_SetFuncDriver(&LCD_Driver);
@@ -442,16 +443,18 @@ void _USBH_Task(void *argument)
   for(;;)
   {
     /* USB Host Background task */
+    // TODO rm this, and make it all driven by OS queues/events
     MX_USB_HOST_Process();
     /* HID Menu Process */
     HID_Process();
 
-    if(HAL_GetTick() - lastUpdate > 50) {
+    if(HAL_GetTick() - lastUpdate > 30) {
       lastUpdate = HAL_GetTick();
 
-      // TODO draw a dot for every finger
+      // draw a box for every finger
       latestTouches = USBH_HID_WisecocoGetLatestTouches();
 
+      BSP_LCD_SwapDrawBuffer(0);
       UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
 
       // draw a background rect at the same aspect ratio as the display
@@ -466,10 +469,8 @@ void _USBH_Task(void *argument)
         // these will be offset, but we're fine with that for now
         UTIL_LCD_FillRect(f->xFrac * 360, f->yFrac * 480, 5, 5, 0xFF000000);
       }
+      BSP_LCD_SwapVisibleBuffer(0);
     }
-
-    // TODO rm this, and make it all driven by OS queues/events
-//    osDelay(1);
   }
   /* USER CODE END 5 */
 }

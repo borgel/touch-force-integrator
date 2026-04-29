@@ -529,7 +529,7 @@ void USBH_HID_PumpTouchReports(USBH_HandleTypeDef *phost) {
   }
   else if(reportId != 1) {
     // we don't support other report types
-    printf("X Rep %d\n", reportId);
+    printf("Unknown report %d\n", reportId);
     return;
   }
   // else, report is 1 (the main one)

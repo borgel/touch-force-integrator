@@ -97,7 +97,7 @@ extern "C" {
 #if (USBH_USE_OS == 1)
   #include "cmsis_os.h"
   #define USBH_PROCESS_PRIO          osPriorityNormal
-  #define USBH_PROCESS_STACK_SIZE    ((uint16_t)0)
+  #define USBH_PROCESS_STACK_SIZE    ((uint16_t)4096)
 #endif /* (USBH_USE_OS == 1) */
 
 /**

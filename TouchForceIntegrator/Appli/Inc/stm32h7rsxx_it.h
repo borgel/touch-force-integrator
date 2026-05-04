@@ -58,6 +58,7 @@ void TIM6_IRQHandler(void);
 void OTG_HS_IRQHandler(void);
 void UCPD1_IRQHandler(void);
 /* USER CODE BEGIN EFP */
+// only relevant when using HS as a HOST
 #if defined(USE_USB_HS)
 #if defined(TCPP0203_SUPPORT)
 void EXTI8_IRQHandler(void);

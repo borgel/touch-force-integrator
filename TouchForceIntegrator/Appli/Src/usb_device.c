@@ -80,6 +80,10 @@ void MX_USB_DEVICE_Init(void)
   {
     Error_Handler();
   }
+  if (USBD_Start(&hUsbDeviceHS) != USBD_OK)
+  {
+    Error_Handler();
+  }
 
   /* USER CODE BEGIN USB_DEVICE_Init_PostTreatment */
 

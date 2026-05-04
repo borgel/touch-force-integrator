@@ -110,8 +110,13 @@
 
 /* Private variables ---------------------------------------------------------*/
 /* USER CODE BEGIN USB Private variables */
-extern USBH_HandleTypeDef hUsbHostHS;
 /* USER CODE END USB Private variables */
+
+#if defined (USE_USB_HS)
+#define hUsbHost hUsbHostHS
+#else
+#define hUsbHost hUsbHostFS
+#endif
 
 /* Exported functions ---------------------------------------------------------*/
 /**
@@ -147,7 +152,7 @@ void USBPD_USBIF_DeviceStop(uint32_t PortNum)
 void USBPD_USBIF_HostStart(uint32_t PortNum)
 {
 /* USER CODE BEGIN USBPD_USBIF_HostStart */
-  if (USBH_Start(&hUsbHostHS) != USBH_OK)
+  if (USBH_Start(&hUsbHost) != USBH_OK)
   {
     Error_Handler();
   }
@@ -158,7 +163,7 @@ void USBPD_USBIF_HostStart(uint32_t PortNum)
 void USBPD_USBIF_HostStop(uint32_t PortNum)
 {
 /* USER CODE BEGIN USBPD_USBIF_HostStop */
-  if (USBH_Stop(&hUsbHostHS) != USBH_OK)
+  if (USBH_Stop(&hUsbHost) != USBH_OK)
   {
     Error_Handler();
   }

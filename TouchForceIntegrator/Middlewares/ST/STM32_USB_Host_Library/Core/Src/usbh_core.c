@@ -265,7 +265,6 @@ static USBH_StatusTypeDef DeInitStateMachine(USBH_HandleTypeDef *phost)
   * @param  pclass: Class handle
   * @retval USBH Status
   */
-// XXX here is where the class is registered
 USBH_StatusTypeDef USBH_RegisterClass(USBH_HandleTypeDef *phost, USBH_ClassTypeDef *pclass)
 {
   USBH_StatusTypeDef status = USBH_OK;
@@ -676,10 +675,8 @@ USBH_StatusTypeDef USBH_Process(USBH_HandleTypeDef *phost)
 
         printf("Interface class desc 0: 0x%0x\n", phost->device.CfgDesc.Itf_Desc[0].bInterfaceClass);
 
-        // TODO add the touchscreen class in here somewhere
         for (idx = 0U; idx < USBH_MAX_NUM_SUPPORTED_CLASS; idx++)
         {
-          // left is the list registered with the driver
           if (phost->pClass[idx]->ClassCode == phost->device.CfgDesc.Itf_Desc[0].bInterfaceClass)
           {
             phost->pActiveClass = phost->pClass[idx];
@@ -689,11 +686,9 @@ USBH_StatusTypeDef USBH_Process(USBH_HandleTypeDef *phost)
 
         if (phost->pActiveClass != NULL)
         {
-          // XXX this calls back into USBH_HID_InterfaceInit
           if (phost->pActiveClass->Init(phost) == USBH_OK)
           {
             phost->gState = HOST_CLASS_REQUEST;
-            // TODO breakpoint here and see if it hits it? >> it does
             USBH_UsrLog("%s class started.", phost->pActiveClass->Name);
 
             /* Inform user that a class has been activated */
@@ -702,7 +697,6 @@ USBH_StatusTypeDef USBH_Process(USBH_HandleTypeDef *phost)
           else
           {
             phost->gState = HOST_ABORT_STATE;
-            // XXX here is where it fails to enumerate because it doesn't understand the class
             USBH_UsrLog("Device not supporting %s class.", phost->pActiveClass->Name);
           }
         }

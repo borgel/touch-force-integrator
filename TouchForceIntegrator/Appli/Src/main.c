@@ -22,6 +22,7 @@
 #include "cmsis_os2.h"
 #include "usbpd.h"
 #include "usb_host.h"
+#include "usb_device.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -421,6 +422,7 @@ void _USBH_Task(void *argument)
 
   /* USER CODE BEGIN 5 */
   MX_USB_HOST_Init();
+  MX_USB_DEVICE_Init();
 
   res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
   assert(res == 0);
@@ -503,6 +505,7 @@ void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
   /* User can add his own implementation to report the HAL error return state */
+  printf("Error handler\n");
   while (1)
   {
   }

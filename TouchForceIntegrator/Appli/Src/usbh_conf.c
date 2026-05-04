@@ -34,7 +34,7 @@
 
 /* USER CODE END PV */
 
-HCD_HandleTypeDef hhcd_USB_OTG_HS;
+HCD_HandleTypeDef hhcd_USB_OTG_FS;
 
 /* USER CODE BEGIN 0 */
 
@@ -60,7 +60,7 @@ USBH_StatusTypeDef USBH_Get_USB_Status(HAL_StatusTypeDef hal_status);
 void HAL_HCD_MspInit(HCD_HandleTypeDef* hcdHandle)
 {
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
-  if(hcdHandle->Instance==USB_OTG_HS)
+  if(hcdHandle->Instance==USB_OTG_FS)
   {
   /* USER CODE BEGIN USB_OTG_HS_MspInit 0 */
 
@@ -68,8 +68,11 @@ void HAL_HCD_MspInit(HCD_HandleTypeDef* hcdHandle)
 
     /** Initializes the peripherals clock
     */
-    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USBPHYC;
+    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USBOTGFS;
+    // TODO correct clocks?
     PeriphClkInit.UsbPhycClockSelection = RCC_USBPHYCCLKSOURCE_HSE;
+    // HSE and RCC_USBOTGFSCLKSOURCE_HSI48 work
+    PeriphClkInit.UsbOtgFsClockSelection = RCC_USBOTGFSCLKSOURCE_HSE;
     if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
     {
       Error_Handler();
@@ -80,12 +83,12 @@ void HAL_HCD_MspInit(HCD_HandleTypeDef* hcdHandle)
     HAL_PWREx_EnableUSBVoltageDetector();
 
     /* Peripheral clock enable */
-    __HAL_RCC_USB_OTG_HS_CLK_ENABLE();
+    __HAL_RCC_USB_OTG_FS_CLK_ENABLE();
     __HAL_RCC_USBPHYC_CLK_ENABLE();
 
     /* Peripheral interrupt init */
-    HAL_NVIC_SetPriority(OTG_HS_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(OTG_HS_IRQn);
+    HAL_NVIC_SetPriority(OTG_FS_IRQn, 0, 0);
+    HAL_NVIC_EnableIRQ(OTG_FS_IRQn);
   /* USER CODE BEGIN USB_OTG_HS_MspInit 1 */
 
   /* USER CODE END USB_OTG_HS_MspInit 1 */
@@ -94,17 +97,17 @@ void HAL_HCD_MspInit(HCD_HandleTypeDef* hcdHandle)
 
 void HAL_HCD_MspDeInit(HCD_HandleTypeDef* hcdHandle)
 {
-  if(hcdHandle->Instance==USB_OTG_HS)
+  if(hcdHandle->Instance==USB_OTG_FS)
   {
   /* USER CODE BEGIN USB_OTG_HS_MspDeInit 0 */
 
   /* USER CODE END USB_OTG_HS_MspDeInit 0 */
     /* Disable Peripheral clock */
-    __HAL_RCC_USB_OTG_HS_CLK_DISABLE();
+    __HAL_RCC_USB_OTG_FS_CLK_DISABLE();
     __HAL_RCC_USBPHYC_CLK_DISABLE();
 
     /* Peripheral interrupt Deinit*/
-    HAL_NVIC_DisableIRQ(OTG_HS_IRQn);
+    HAL_NVIC_DisableIRQ(OTG_FS_IRQn);
 
   /* USER CODE BEGIN USB_OTG_HS_MspDeInit 1 */
 
@@ -189,26 +192,25 @@ void HAL_HCD_PortDisabled_Callback(HCD_HandleTypeDef *hhcd)
 USBH_StatusTypeDef USBH_LL_Init(USBH_HandleTypeDef *phost)
 {
   /* Init USB_IP */
-  if (phost->id == HOST_HS) {
-  /* Link the driver to the stack. */
-  hhcd_USB_OTG_HS.pData = phost;
-  phost->pData = &hhcd_USB_OTG_HS;
+  if (phost->id == HOST_FS) {
+    /* Link the driver to the stack. */
+    hhcd_USB_OTG_FS.pData = phost;
+    phost->pData = &hhcd_USB_OTG_FS;
 
-  hhcd_USB_OTG_HS.Instance = USB_OTG_HS;
-  hhcd_USB_OTG_HS.Init.Host_channels = 16;
-  hhcd_USB_OTG_HS.Init.speed = HCD_SPEED_HIGH;
-  hhcd_USB_OTG_HS.Init.dma_enable = DISABLE;
-  hhcd_USB_OTG_HS.Init.phy_itface = USB_OTG_HS_EMBEDDED_PHY;
-  hhcd_USB_OTG_HS.Init.Sof_enable = DISABLE;
-  hhcd_USB_OTG_HS.Init.low_power_enable = DISABLE;
-  hhcd_USB_OTG_HS.Init.vbus_sensing_enable = DISABLE;
-  hhcd_USB_OTG_HS.Init.use_external_vbus = ENABLE;
-  if (HAL_HCD_Init(&hhcd_USB_OTG_HS) != HAL_OK)
-  {
-    Error_Handler();
-  }
+    hhcd_USB_OTG_FS.Instance = USB_OTG_FS;
+    hhcd_USB_OTG_FS.Init.Host_channels = 12;
+    hhcd_USB_OTG_FS.Init.speed = USB_OTG_SPEED_FULL;
+    // TODO enable?
+    hhcd_USB_OTG_FS.Init.dma_enable = DISABLE;
+    hhcd_USB_OTG_FS.Init.phy_itface = HCD_PHY_EMBEDDED;
+    hhcd_USB_OTG_FS.Init.Sof_enable = DISABLE;
+    hhcd_USB_OTG_FS.Init.vbus_sensing_enable = DISABLE;
+    if (HAL_HCD_Init(&hhcd_USB_OTG_FS) != HAL_OK)
+    {
+      Error_Handler();
+    }
 
-  USBH_LL_SetTimer(phost, HAL_HCD_GetCurrentFrame(&hhcd_USB_OTG_HS));
+    USBH_LL_SetTimer(phost, HAL_HCD_GetCurrentFrame(&hhcd_USB_OTG_FS));
   }
   return USBH_OK;
 }
@@ -288,7 +290,7 @@ USBH_SpeedTypeDef USBH_LL_GetSpeed(USBH_HandleTypeDef *phost)
     break;
 
   default:
-   speed = USBH_SPEED_FULL;
+    speed = USBH_SPEED_FULL;
     break;
   }
   return  speed;
@@ -442,7 +444,7 @@ USBH_StatusTypeDef USBH_LL_DriverVBUS(USBH_HandleTypeDef *phost, uint8_t state)
 
   /* USER CODE END 0*/
 
-  if (phost->id == HOST_HS)
+  if (phost->id == HOST_FS)
   {
     if (state == 0)
     {

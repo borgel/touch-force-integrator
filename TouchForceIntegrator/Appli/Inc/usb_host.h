@@ -27,6 +27,7 @@ extern "C" {
 #endif
 
 /* Includes ------------------------------------------------------------------*/
+#include "usbh_def.h"
 #include "stm32h7rsxx.h"
 #include "stm32h7rsxx_hal.h"
 
@@ -47,6 +48,12 @@ extern "C" {
   * @brief Public variables.
   * @{
   */
+
+#if defined (USE_USB_HS)
+extern USBH_HandleTypeDef hUsbHostHS;
+#else
+extern USBH_HandleTypeDef hUsbHostFS;
+#endif
 
 /**
   * @}

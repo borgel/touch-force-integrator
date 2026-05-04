@@ -52,7 +52,6 @@ static void HID_MOUSE_ProcessData(HID_MOUSE_Info_TypeDef *data);
 /* USER CODE END PFP */
 
 /* USB Host core handle declaration */
-USBH_HandleTypeDef hUsbHostHS;
 ApplicationTypeDef Appli_state = APPLICATION_IDLE;
 
 /*
@@ -60,8 +59,10 @@ ApplicationTypeDef Appli_state = APPLICATION_IDLE;
  */
 /* USER CODE BEGIN 0 */
 #if defined (USE_USB_HS)
+USBH_HandleTypeDef hUsbHostHS;
 #define hUsbHost hUsbHostHS
 #else
+USBH_HandleTypeDef hUsbHostFS;
 #define hUsbHost hUsbHostFS
 #endif
 /* USER CODE END 0 */
@@ -87,17 +88,21 @@ void MX_USB_HOST_Init(void)
   /* USER CODE BEGIN USB_HOST_Init_PreTreatment */
 
   /* USER CODE END USB_HOST_Init_PreTreatment */
-
-  /* Init host Library, add supported class and start the library. */
-  if (USBH_Init(&hUsbHostHS, USBH_UserProcess, HOST_HS) != USBH_OK)
-  {
-    Error_Handler();
-  }
-  if (USBH_RegisterClass(&hUsbHostHS, USBH_HID_CLASS) != USBH_OK)
-  {
-    Error_Handler();
-  }
   /* USER CODE BEGIN USB_HOST_Init_PostTreatment */
+  /* Init host Library, add supported class and start the library. */
+  if (USBH_Init(&hUsbHost, USBH_UserProcess, HOST_FS) != USBH_OK)
+  {
+    Error_Handler();
+  }
+  if (USBH_RegisterClass(&hUsbHost, USBH_HID_CLASS) != USBH_OK)
+  {
+    Error_Handler();
+  }
+  if (USBH_Start(&hUsbHostFS) != USBH_OK)
+  {
+    Error_Handler();
+  }
+
 #if defined(USE_USB_HS)
   USBH_UsrLog(" **** USB OTG HS Host **** \n");
 #else

@@ -59,39 +59,38 @@ USBH_StatusTypeDef USBH_Get_USB_Status(HAL_StatusTypeDef hal_status);
 
 void HAL_HCD_MspInit(HCD_HandleTypeDef* hcdHandle)
 {
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_PeriphCLKInitTypeDef PeriphClkInit = {0};
   if(hcdHandle->Instance==USB_OTG_FS)
   {
-  /* USER CODE BEGIN USB_OTG_HS_MspInit 0 */
+  /* USER CODE BEGIN USB_OTG_FS_MspInit 0 */
 
-  /* USER CODE END USB_OTG_HS_MspInit 0 */
+  /* USER CODE END USB_OTG_FS_MspInit 0 */
 
-    /** Initializes the peripherals clock
-    */
-    PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USBOTGFS;
-    // TODO correct clocks?
-    PeriphClkInit.UsbPhycClockSelection = RCC_USBPHYCCLKSOURCE_HSE;
-    // HSE and RCC_USBOTGFSCLKSOURCE_HSI48 work
-    PeriphClkInit.UsbOtgFsClockSelection = RCC_USBOTGFSCLKSOURCE_HSE;
+    /* Bootloader leaves HSI48 off; turn it on so USB_OTG_FS has a 48 MHz reference. */
+    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI48;
+    RCC_OscInitStruct.HSI48State = RCC_HSI48_ON;
+    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+    {
+      Error_Handler();
+    }
+
+    PeriphClkInit.PeriphClockSelection   = RCC_PERIPHCLK_USBOTGFS;
+    PeriphClkInit.UsbOtgFsClockSelection = RCC_USBOTGFSCLKSOURCE_HSI48;
     if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
     {
       Error_Handler();
     }
 
-    /** Enable USB Voltage detector
-    */
     HAL_PWREx_EnableUSBVoltageDetector();
 
-    /* Peripheral clock enable */
     __HAL_RCC_USB_OTG_FS_CLK_ENABLE();
-    __HAL_RCC_USBPHYC_CLK_ENABLE();
 
-    /* Peripheral interrupt init */
-    HAL_NVIC_SetPriority(OTG_FS_IRQn, 0, 0);
+    HAL_NVIC_SetPriority(OTG_FS_IRQn, 5, 0);
     HAL_NVIC_EnableIRQ(OTG_FS_IRQn);
-  /* USER CODE BEGIN USB_OTG_HS_MspInit 1 */
+  /* USER CODE BEGIN USB_OTG_FS_MspInit 1 */
 
-  /* USER CODE END USB_OTG_HS_MspInit 1 */
+  /* USER CODE END USB_OTG_FS_MspInit 1 */
   }
 }
 
@@ -104,7 +103,6 @@ void HAL_HCD_MspDeInit(HCD_HandleTypeDef* hcdHandle)
   /* USER CODE END USB_OTG_HS_MspDeInit 0 */
     /* Disable Peripheral clock */
     __HAL_RCC_USB_OTG_FS_CLK_DISABLE();
-    __HAL_RCC_USBPHYC_CLK_DISABLE();
 
     /* Peripheral interrupt Deinit*/
     HAL_NVIC_DisableIRQ(OTG_FS_IRQn);

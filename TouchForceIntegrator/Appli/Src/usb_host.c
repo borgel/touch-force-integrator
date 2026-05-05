@@ -98,7 +98,7 @@ void MX_USB_HOST_Init(void)
   {
     Error_Handler();
   }
-  if (USBH_Start(&hUsbHostFS) != USBH_OK)
+  if (USBH_Start(&hUsbHost) != USBH_OK)
   {
     Error_Handler();
   }

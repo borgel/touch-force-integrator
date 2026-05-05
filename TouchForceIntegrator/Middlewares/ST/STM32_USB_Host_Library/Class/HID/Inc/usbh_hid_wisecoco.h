@@ -104,10 +104,26 @@ void USBH_HID_WisecocoSetRotation(USBH_WC_Rotation rotation);
 USBH_StatusTypeDef USBH_HID_WisecocoInit(USBH_HandleTypeDef *phost);
 // return true if there is new data
 void USBH_HID_PumpTouchReports(USBH_HandleTypeDef *phost);
-// get the set of touches from the latest report
-// Note this function call cannot fail (it's just returns a pointer to the internal struct),
-// but there may be 0 active touches, and it will be invalidated the next time a USB frame is processed
-struct USBH_LatestWisecocoData const * const USBH_HID_WisecocoGetLatestTouches(void);
+
+/*
+ * Frame-publication primitives.
+ *
+ * USBH_HID_WisecocoAppInit() creates the binary semaphore that
+ * USBH_HID_WisecocoWaitFrame() blocks on. Call once at app startup
+ * before any consumer task tries to wait. Safe to call before the
+ * scheduler is running (xSemaphoreCreateBinaryStatic is just memory init).
+ *
+ * USBH_HID_WisecocoWaitFrame() blocks until a new touch frame arrives,
+ * then atomically copies the published snapshot into *out. Returns true
+ * on success, false on timeout. Uses HAL_MAX_DELAY for "wait forever".
+ *
+ * Multiple producer cycles between consumer takes are coalesced: the
+ * binary semaphore stays at 1, the consumer always sees the latest
+ * snapshot. We don't try to deliver every individual frame — the render
+ * loop just wants the freshest state.
+ */
+void USBH_HID_WisecocoAppInit(void);
+bool USBH_HID_WisecocoWaitFrame(struct USBH_LatestWisecocoData *out, uint32_t timeoutMs);
 
 #ifdef __cplusplus
 }

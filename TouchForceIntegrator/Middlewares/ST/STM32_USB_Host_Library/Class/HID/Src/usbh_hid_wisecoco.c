@@ -8,6 +8,10 @@ EndBSPDependencies */
 #include "usbh_hid_wisecoco.h"
 #include "usbh_hid_parser.h"
 
+#include "FreeRTOS.h"
+#include "semphr.h"
+#include "task.h"
+
 #include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
@@ -431,8 +435,44 @@ static const HID_Report_ItemTypedef prop_vendor_in4 =
 };
 
 
-// hold the most recent update state data we've gotten from the device
+/*
+ * Latest published touch frame. Producer (USBH_HID_PumpTouchReports,
+ * running in the USB host's task context) builds a fresh frame on its
+ * own stack and then atomically copies it into latestData under a
+ * brief critical section. Consumer (USBH_HID_WisecocoWaitFrame) wakes
+ * on the semaphore and copies latestData out under the same critical
+ * section. The critical sections are ~1 microsecond on Cortex-M7;
+ * neither side ever holds the lock during USB parsing or rendering.
+ */
 static struct USBH_LatestWisecocoData latestData;
+static StaticSemaphore_t s_newFrameSemMeta;
+static SemaphoreHandle_t s_newFrameSem;
+
+void USBH_HID_WisecocoAppInit(void)
+{
+  if (s_newFrameSem == NULL)
+  {
+    s_newFrameSem = xSemaphoreCreateBinaryStatic(&s_newFrameSemMeta);
+  }
+}
+
+bool USBH_HID_WisecocoWaitFrame(struct USBH_LatestWisecocoData *out, uint32_t timeoutMs)
+{
+  if (s_newFrameSem == NULL || out == NULL)
+  {
+    return false;
+  }
+  TickType_t ticks = (timeoutMs == HAL_MAX_DELAY) ? portMAX_DELAY
+                                                  : pdMS_TO_TICKS(timeoutMs);
+  if (xSemaphoreTake(s_newFrameSem, ticks) != pdTRUE)
+  {
+    return false;
+  }
+  taskENTER_CRITICAL();
+  *out = latestData;
+  taskEXIT_CRITICAL();
+  return true;
+}
 
 // User-configured rotation, applied per-finger inside USBH_HID_PumpTouchReports.
 // Persists across re-enumeration; only the user changes it.
@@ -533,10 +573,6 @@ USBH_StatusTypeDef USBH_HID_WisecocoInit(USBH_HandleTypeDef *phost)
   return USBH_OK;
 }
 
-struct USBH_LatestWisecocoData const * const USBH_HID_WisecocoGetLatestTouches(void) {
-  return &latestData;
-}
-
 // return the latest? touch report info to be printed above
 void USBH_HID_PumpTouchReports(USBH_HandleTypeDef *phost) {
   HID_HandleTypeDef *HID_Handle = (HID_HandleTypeDef *) phost->pActiveClass->pData;
@@ -590,30 +626,33 @@ void USBH_HID_PumpTouchReports(USBH_HandleTypeDef *phost) {
   }
   // else, report is 1 (the main one)
 
-  latestData.liveTouches = HID_ReadItem((HID_Report_ItemTypedef*) &prop_contact_count, 0);
-  latestData.tipsTouchedDown = 0;
+  // Build the new frame on the stack with no locks held. Once it's fully
+  // populated we publish it into latestData under a brief critical section.
+  struct USBH_LatestWisecocoData scratch = {0};
+  scratch.liveTouches = HID_ReadItem((HID_Report_ItemTypedef*) &prop_contact_count, 0);
+  scratch.tipsTouchedDown = 0;
 
-  for(int i = 0; i < latestData.liveTouches; i++) {
-    // last param is index, if there is more than one
-    latestData.fingers[i].touching = HID_ReadItem((HID_Report_ItemTypedef*) &prop_tip[i], 0);
-    // FIXME why does this need to be >> 2?
-    latestData.fingers[i].id = HID_ReadItem((HID_Report_ItemTypedef*) &prop_contact_id[i], 0);
-    latestData.fingers[i].patchWidth = HID_ReadItem((HID_Report_ItemTypedef*) &prop_width[i], 0);
-    latestData.fingers[i].patchHeight = HID_ReadItem((HID_Report_ItemTypedef*) &prop_height[i], 0);
-
-    latestData.fingers[i].x = HID_ReadItem((HID_Report_ItemTypedef*)&prop_x[i], 0);
-    latestData.fingers[i].y = HID_ReadItem((HID_Report_ItemTypedef*)&prop_y[i], 0);
+  for(unsigned i = 0; i < scratch.liveTouches; i++) {
+    scratch.fingers[i].touching     = HID_ReadItem((HID_Report_ItemTypedef*) &prop_tip[i], 0);
+    scratch.fingers[i].id           = HID_ReadItem((HID_Report_ItemTypedef*) &prop_contact_id[i], 0);
+    scratch.fingers[i].patchWidth   = HID_ReadItem((HID_Report_ItemTypedef*) &prop_width[i], 0);
+    scratch.fingers[i].patchHeight  = HID_ReadItem((HID_Report_ItemTypedef*) &prop_height[i], 0);
+    scratch.fingers[i].x            = HID_ReadItem((HID_Report_ItemTypedef*) &prop_x[i], 0);
+    scratch.fingers[i].y            = HID_ReadItem((HID_Report_ItemTypedef*) &prop_y[i], 0);
 
     // apply user-configured rotation; sets x/y/xFrac/yFrac and may swap patch dims
-    apply_rotation(&latestData.fingers[i]);
+    apply_rotation(&scratch.fingers[i]);
 
-    // how many microseconds has it been since the first touch of the current group began
-    latestData.fingers[i].touchDuration = HID_ReadItem((HID_Report_ItemTypedef*)&prop_scan_time, 0);
-
-    // update the total number of fingers down in this frame
-    latestData.tipsTouchedDown += latestData.fingers[i].touching;
+    scratch.fingers[i].touchDuration = HID_ReadItem((HID_Report_ItemTypedef*) &prop_scan_time, 0);
+    scratch.tipsTouchedDown += scratch.fingers[i].touching;
   }
 
-  return;
+  // Publish: atomic struct copy, then signal the consumer.
+  taskENTER_CRITICAL();
+  latestData = scratch;
+  taskEXIT_CRITICAL();
+  if (s_newFrameSem != NULL) {
+    (void)xSemaphoreGive(s_newFrameSem);
+  }
 }
 

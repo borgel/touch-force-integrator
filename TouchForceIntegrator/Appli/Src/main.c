@@ -57,10 +57,14 @@
 
 UART_HandleTypeDef huart4;
 
-/* Definitions for USBH_Task */
-osThreadId_t USBH_TaskHandle;
-const osThreadAttr_t USBH_Task_attributes = {
-  .name = "USBH_Task",
+/* USB host/device pumping task: runs MX_USB_HOST_Init + MX_USB_DEVICE_Init
+ * once, then loops calling HID_Process to drive the wisecoco state machine.
+ * Note: MX_USB_HOST_Process is *not* called here because USBH_USE_OS == 1
+ * makes the host stack spawn its own internal thread that pumps
+ * USBH_Process from the URB IRQ event queue. */
+osThreadId_t USB_TaskHandle;
+const osThreadAttr_t USB_Task_attributes = {
+  .name = "USB_Task",
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
@@ -71,6 +75,12 @@ const osThreadAttr_t CDC_Task_attributes = {
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+osThreadId_t Render_TaskHandle;
+const osThreadAttr_t Render_Task_attributes = {
+  .name = "Render_Task",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -78,8 +88,9 @@ static void MX_GPIO_Init(void);
 static void MX_GPDMA1_Init(void);
 static void MX_UART4_Init(void);
 static void MX_UCPD1_Init(void);
-void _USBH_Task(void *argument);
+void _USB_Task(void *argument);
 void _CDC_Task(void *argument);
+void _Render_Task(void *argument);
 
 /* USER CODE BEGIN PFP */
 #if defined(__ICCARM__)
@@ -146,6 +157,12 @@ int main(void)
 
   /* Init scheduler */
   osKernelInitialize();
+
+  /* Create the wisecoco frame-publication semaphore before any USB activity
+   * and before the render task can start waiting on it. Static allocation,
+   * doesn't need the scheduler running. */
+  USBH_HID_WisecocoAppInit();
+
   /* USBPD initialisation ---------------------------------*/
   MX_USBPD_Init();
 
@@ -166,11 +183,11 @@ int main(void)
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
-  /* creation of USBH_Task */
-  USBH_TaskHandle = osThreadNew(_USBH_Task, NULL, &USBH_Task_attributes);
+  USB_TaskHandle = osThreadNew(_USB_Task, NULL, &USB_Task_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   CDC_TaskHandle = osThreadNew(_CDC_Task, NULL, &CDC_Task_attributes);
+  Render_TaskHandle = osThreadNew(_Render_Task, NULL, &Render_Task_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -417,22 +434,52 @@ PUTCHAR_PROTOTYPE
 
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header__USBH_Task */
+/* USER CODE BEGIN Header__USB_Task */
 /**
-  * @brief  Function implementing the USBH_Task thread.
+  * @brief  USB host/device pumping task. Brings up the host stack (which
+  *         spawns its own internal USBH_Thread for USBH_Process) and the
+  *         device stack, then loops driving HID_Process to consume parsed
+  *         touch reports.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header__USBH_Task */
-void _USBH_Task(void *argument)
+/* USER CODE END Header__USB_Task */
+void _USB_Task(void *argument)
 {
-  int res;
+  (void)argument;
 
   /* USER CODE BEGIN 5 */
   USBH_HID_WisecocoSetRotation(USBH_WC_ROTATE_90);
 
   MX_USB_HOST_Init();
   MX_USB_DEVICE_Init();
+
+  for (;;) {
+    /* USBH_USE_OS == 1 makes the host stack spawn its own internal thread
+     * that pumps USBH_Process from URB IRQ events, but enumeration state
+     * transitions still need this user-side pump to make progress —
+     * matches the pattern in ST's HID_RTOS reference example. */
+    MX_USB_HOST_Process();
+    HID_Process();
+    osDelay(1);
+  }
+  /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header__Render_Task */
+/**
+  * @brief  LCD rendering task. Brings up the LCD with two layers (static
+  *         background on layer 0, animated dots on layer 1 with color
+  *         keying for transparency), then waits on the wisecoco
+  *         frame-published semaphore and redraws on each new frame.
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header__Render_Task */
+void _Render_Task(void *argument)
+{
+  (void)argument;
+  int res;
 
   res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
   assert(res == 0);
@@ -460,8 +507,6 @@ void _USBH_Task(void *argument)
   BSP_LCD_SetColorKeying(0, 1, KEY_888);
 
   // ---- Layer 0 (background): drawn ONCE. ----
-  // Draw the same content into both buffers so the very first SwapVisible
-  // doesn't briefly show whatever uninitialized SDRAM contained.
   BSP_LCD_SetActiveLayer(0, 0);
   for (int i = 0; i < 2; i++) {
     UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
@@ -469,55 +514,38 @@ void _USBH_Task(void *argument)
     BSP_LCD_SwapVisibleBuffer(0, 0);
     BSP_LCD_SwapDrawBuffer(0, 0);
   }
-  // After two swaps we're back where we started; no further layer-0 work.
 
   // ---- Layer 1 (foreground): initialize both buffers to fully transparent. ----
-  // Outside the touch area is filled to KEY once and never touched again.
-  // Inside the touch area gets cleared+redrawn each frame.
   BSP_LCD_SetActiveLayer(0, 1);
   for (int i = 0; i < 2; i++) {
     UTIL_LCD_Clear(KEY_565);
     BSP_LCD_SwapVisibleBuffer(0, 1);
     BSP_LCD_SwapDrawBuffer(0, 1);
   }
-  // Active layer stays at 1 for the render loop below.
 
-  struct USBH_LatestWisecocoData const * latestTouches;
-
-  uint32_t lastUpdate;
-  for(;;)
-  {
-    /* USB Host Background task */
-    // TODO rm this, and make it all driven by OS queues/events
-    MX_USB_HOST_Process();
-    /* HID Menu Process */
-    HID_Process();
-
-    // this is a pointer to an internal data structure, so only get it once
-    latestTouches = USBH_HID_WisecocoGetLatestTouches();
-
-    if(HAL_GetTick() - lastUpdate > 30) {
-      lastUpdate = HAL_GetTick();
-
-      // Clear only the touch area in layer 1 to KEY, erasing last frame's
-      // dots. Background (layer 0) and the metadata strip on layer 1 are
-      // both untouched, saving ~75% of the per-frame fill work.
-      UTIL_LCD_FillRect(TOUCH_X0, TOUCH_Y0, TOUCH_W, TOUCH_H, KEY_565);
-
-      // draw a square at each finger location
-      for(unsigned i = 0; i < latestTouches->liveTouches; i++) {
-        struct USBH_WCSingleFinger const * const f = &latestTouches->fingers[i];
-        if(f->touching) {
-          UTIL_LCD_FillRect(TOUCH_X0 + f->xFrac * TOUCH_W,
-                            TOUCH_Y0 + f->yFrac * TOUCH_H,
-                            5, 5, 0xFF000000);
-        }
-      }
-      BSP_LCD_SwapVisibleBuffer(0, 1);
-      BSP_LCD_SwapDrawBuffer(0, 1);
+  struct USBH_LatestWisecocoData snapshot;
+  for (;;) {
+    // Wait for the next published touch frame. When the touchscreen is
+    // idle the producer doesn't publish, so this task sleeps until there's
+    // actually something new to render.
+    if (!USBH_HID_WisecocoWaitFrame(&snapshot, HAL_MAX_DELAY)) {
+      continue;
     }
+
+    // Clear only the touch area to KEY (transparent), erasing last frame's dots.
+    UTIL_LCD_FillRect(TOUCH_X0, TOUCH_Y0, TOUCH_W, TOUCH_H, KEY_565);
+
+    for (unsigned i = 0; i < snapshot.liveTouches; i++) {
+      struct USBH_WCSingleFinger const * const f = &snapshot.fingers[i];
+      if (f->touching) {
+        UTIL_LCD_FillRect(TOUCH_X0 + f->xFrac * TOUCH_W,
+                          TOUCH_Y0 + f->yFrac * TOUCH_H,
+                          5, 5, 0xFF000000);
+      }
+    }
+    BSP_LCD_SwapVisibleBuffer(0, 1);
+    BSP_LCD_SwapDrawBuffer(0, 1);
   }
-  /* USER CODE END 5 */
 }
 
 /* USER CODE BEGIN Header__CDC_Task */
@@ -533,7 +561,7 @@ void _CDC_Task(void *argument)
 {
   (void)argument;
 
-  /* MX_USB_DEVICE_Init runs from _USBH_Task and calls CDC_AppInit before
+  /* MX_USB_DEVICE_Init runs from _USB_Task and calls CDC_AppInit before
    * starting the USB stack, so by the time the host has enumerated the
    * device the FreeRTOS objects backing CDC_Read / CDC_Write definitely
    * exist.  hUsbDeviceFS lives in usb_device.c. */

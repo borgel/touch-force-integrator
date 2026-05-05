@@ -429,6 +429,8 @@ void _USBH_Task(void *argument)
   int res;
 
   /* USER CODE BEGIN 5 */
+  USBH_HID_WisecocoSetRotation(USBH_WC_ROTATE_90);
+
   MX_USB_HOST_Init();
   MX_USB_DEVICE_Init();
 

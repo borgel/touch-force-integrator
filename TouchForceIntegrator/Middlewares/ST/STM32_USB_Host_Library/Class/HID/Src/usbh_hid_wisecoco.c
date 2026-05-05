@@ -434,6 +434,62 @@ static const HID_Report_ItemTypedef prop_vendor_in4 =
 // hold the most recent update state data we've gotten from the device
 static struct USBH_LatestWisecocoData latestData;
 
+// User-configured rotation, applied per-finger inside USBH_HID_PumpTouchReports.
+// Persists across re-enumeration; only the user changes it.
+static USBH_WC_Rotation s_rotation = USBH_WC_ROTATE_0;
+
+void USBH_HID_WisecocoSetRotation(USBH_WC_Rotation rotation)
+{
+  s_rotation = rotation;
+}
+
+/*
+ * Apply s_rotation to one finger's raw (x, y) and patch dimensions in
+ * place. Native coordinate system is x in [0, DISP_WIDTH_PX] and y in
+ * [0, DISP_HEIGHT_PX]; rotated frame may swap those bounds.
+ */
+static void apply_rotation(struct USBH_WCSingleFinger *f)
+{
+  uint16_t x = f->x;
+  uint16_t y = f->y;
+  uint8_t pw = f->patchWidth;
+  uint8_t ph = f->patchHeight;
+
+  switch (s_rotation)
+  {
+    case USBH_WC_ROTATE_0:
+    default:
+      f->xFrac = (double)x / (double)DISP_WIDTH_PX;
+      f->yFrac = (double)y / (double)DISP_HEIGHT_PX;
+      break;
+
+    case USBH_WC_ROTATE_90:
+      f->x = (uint16_t)(DISP_HEIGHT_PX - y);
+      f->y = x;
+      f->patchWidth  = ph;
+      f->patchHeight = pw;
+      f->xFrac = 1.0 - (double)y / (double)DISP_HEIGHT_PX;
+      f->yFrac = (double)x / (double)DISP_WIDTH_PX;
+      break;
+
+    case USBH_WC_ROTATE_180:
+      f->x = (uint16_t)(DISP_WIDTH_PX  - x);
+      f->y = (uint16_t)(DISP_HEIGHT_PX - y);
+      f->xFrac = 1.0 - (double)x / (double)DISP_WIDTH_PX;
+      f->yFrac = 1.0 - (double)y / (double)DISP_HEIGHT_PX;
+      break;
+
+    case USBH_WC_ROTATE_270:
+      f->x = y;
+      f->y = (uint16_t)(DISP_WIDTH_PX - x);
+      f->patchWidth  = ph;
+      f->patchHeight = pw;
+      f->xFrac = (double)y / (double)DISP_HEIGHT_PX;
+      f->yFrac = 1.0 - (double)x / (double)DISP_WIDTH_PX;
+      break;
+  }
+}
+
 USBH_StatusTypeDef USBH_HID_WisecocoInit(USBH_HandleTypeDef *phost)
 {
   // as far as I can tell these duplicate the non-2 versions of these fields and aren't needed
@@ -546,10 +602,10 @@ void USBH_HID_PumpTouchReports(USBH_HandleTypeDef *phost) {
     latestData.fingers[i].patchHeight = HID_ReadItem((HID_Report_ItemTypedef*) &prop_height[i], 0);
 
     latestData.fingers[i].x = HID_ReadItem((HID_Report_ItemTypedef*)&prop_x[i], 0);
-    // TODO confirm these aren't swapped
-    latestData.fingers[i].xFrac = (double)latestData.fingers[i].x / (double)DISP_WIDTH_PX;
     latestData.fingers[i].y = HID_ReadItem((HID_Report_ItemTypedef*)&prop_y[i], 0);
-    latestData.fingers[i].yFrac = (double)latestData.fingers[i].y / (double)DISP_HEIGHT_PX;
+
+    // apply user-configured rotation; sets x/y/xFrac/yFrac and may swap patch dims
+    apply_rotation(&latestData.fingers[i]);
 
     // how many microseconds has it been since the first touch of the current group began
     latestData.fingers[i].touchDuration = HID_ReadItem((HID_Report_ItemTypedef*)&prop_scan_time, 0);

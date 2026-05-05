@@ -67,6 +67,40 @@ struct USBH_LatestWisecocoData {
   struct USBH_WCSingleFinger fingers[MAX_TOUCHES];
 };
 
+/*
+ * Rotation applied to the reported coordinates. The values are clockwise
+ * rotations of the displayed image (i.e. ROTATE_90 means "the screen is
+ * mounted physically rotated 90 degrees clockwise from the device-native
+ * orientation, please give me coordinates in the rotated frame").
+ *
+ *   - ROTATE_0   : x in [0, DISP_WIDTH_PX],  y in [0, DISP_HEIGHT_PX]
+ *   - ROTATE_90  : x in [0, DISP_HEIGHT_PX], y in [0, DISP_WIDTH_PX]   (axes swapped)
+ *   - ROTATE_180 : x in [0, DISP_WIDTH_PX],  y in [0, DISP_HEIGHT_PX]
+ *   - ROTATE_270 : x in [0, DISP_HEIGHT_PX], y in [0, DISP_WIDTH_PX]   (axes swapped)
+ *
+ * patchWidth and patchHeight swap with the axes for 90/270.
+ * xFrac/yFrac always remain in [0, 1] of whichever axis they describe.
+ */
+typedef enum {
+  USBH_WC_ROTATE_0   = 0,
+  USBH_WC_ROTATE_90  = 90,
+  USBH_WC_ROTATE_180 = 180,
+  USBH_WC_ROTATE_270 = 270,
+} USBH_WC_Rotation;
+
+/*
+ * Configure the coordinate rotation applied to subsequent touch reports.
+ *
+ * Note: USBH_HID_WisecocoInit() is registered with the USB HID class as a
+ * fixed-signature callback, so the rotation is configured via this separate
+ * setter rather than as an Init() parameter. Call once during application
+ * setup before plugging in the touchscreen; the rotation persists across
+ * device re-enumeration.
+ *
+ * Defaults to USBH_WC_ROTATE_0 if never called.
+ */
+void USBH_HID_WisecocoSetRotation(USBH_WC_Rotation rotation);
+
 USBH_StatusTypeDef USBH_HID_WisecocoInit(USBH_HandleTypeDef *phost);
 // return true if there is new data
 void USBH_HID_PumpTouchReports(USBH_HandleTypeDef *phost);

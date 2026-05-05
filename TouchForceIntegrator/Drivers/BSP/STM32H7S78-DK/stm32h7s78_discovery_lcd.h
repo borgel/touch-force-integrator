@@ -189,6 +189,8 @@ typedef enum {
   LCD_FRAMEBUFFER_B,
 } BSP_LCD_Framebuffer_t;
 
+#define BSP_LCD_LAYER_COUNT 2U
+
 // this has N instances, one for each LCD instance
 typedef struct
 {
@@ -201,11 +203,12 @@ typedef struct
   uint32_t ReloadEnable;
   uint32_t Brightness;
 
-  uint32_t ActiveLayerFBStartAddress[2];    // Active draw buffer address for each layer
+  uint32_t ActiveLayerFBStartAddress[BSP_LCD_LAYER_COUNT];    // Active draw buffer address for each layer
 
-  // TODO this assumes always layer 0 ! add an array of layer config if we need both
-  BSP_LCD_Framebuffer_t FramebufferDrawing; // which buffer is the current draw target (default A)
-  BSP_LCD_Framebuffer_t FramebufferVisible; // which buffer is currently visible (default A)
+  // Per-layer double-buffer state. Index 0 = layer 0 (background), 1 = layer 1 (foreground).
+  // Each layer can independently be in single- or double-buffer mode and swap independently.
+  BSP_LCD_Framebuffer_t FramebufferDrawing[BSP_LCD_LAYER_COUNT]; // which buffer is the current draw target (default A)
+  BSP_LCD_Framebuffer_t FramebufferVisible[BSP_LCD_LAYER_COUNT]; // which buffer is currently visible (default A)
 } BSP_LCD_Ctx_t;
 
 // only used during setup and full layer config
@@ -258,16 +261,25 @@ int32_t BSP_LCD_RegisterDefaultMspCallbacks(uint32_t Instance);
 int32_t BSP_LCD_RegisterMspCallbacks(uint32_t Instance, BSP_LCD_Cb_t *CallBacks);
 #endif /*(USE_HAL_LTDC_REGISTER_CALLBACKS == 1) */
 
-/* APIs for using double buffering on layer 0 */
-// setup double buffering (if not called, will work with single buffering as-is)
-void BSP_LCD_EnableDoubleBuffering(uint32_t const instance);
-// swap the background buffer being drawn to
-void BSP_LCD_SwapDrawBuffer(uint32_t const instance);
-// swap between the A and B frame buffers
-void BSP_LCD_SwapVisibleBuffer(uint32_t const instance);
+/* APIs for using double buffering, configurable per layer.
+ * Layer 0 is configured by BSP_LCD_Init/InitEx. Call BSP_LCD_InitLayer1 once
+ * to bring up layer 1 before driving its double buffer.  */
+
+// Bring up layer 1 with the same dimensions and pixel format as layer 0,
+// pointed at LCD_LAYER_1_ADDRESS. Caller is responsible for filling the
+// buffers and (optionally) configuring color keying for transparency.
+int32_t BSP_LCD_InitLayer1(uint32_t Instance);
+
+// setup double buffering for the given layer (if not called, that layer
+// stays in single-buffer mode)
+void BSP_LCD_EnableDoubleBuffering(uint32_t const instance, uint32_t const layer);
+// swap the off-screen draw buffer for this layer
+void BSP_LCD_SwapDrawBuffer(uint32_t const instance, uint32_t const layer);
+// swap which buffer this layer's LTDC reads from
+void BSP_LCD_SwapVisibleBuffer(uint32_t const instance, uint32_t const layer);
 // APIs for manual control if you need it
-void BSP_LCD_SetDrawBuffer(uint32_t const instance, BSP_LCD_Framebuffer_t const targetFramebuffer);
-void BSP_LCD_SetVisibleBuffer(uint32_t const instance, BSP_LCD_Framebuffer_t const targetFramebuffer);
+void BSP_LCD_SetDrawBuffer(uint32_t const instance, uint32_t const layer, BSP_LCD_Framebuffer_t const targetFramebuffer);
+void BSP_LCD_SetVisibleBuffer(uint32_t const instance, uint32_t const layer, BSP_LCD_Framebuffer_t const targetFramebuffer);
 
 /* LCD specific APIs: Layer control & LCD HW reset */
 int32_t BSP_LCD_Reload(uint32_t Instance, uint32_t ReloadType);

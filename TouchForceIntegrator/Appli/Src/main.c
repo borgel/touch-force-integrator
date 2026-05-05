@@ -437,7 +437,7 @@ void _USBH_Task(void *argument)
   res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
   assert(res == 0);
   BSP_LCD_Reload(0, BSP_LCD_RELOAD_VERTICAL_BLANKING);
-  BSP_LCD_EnableDoubleBuffering(0);
+  BSP_LCD_EnableDoubleBuffering(0, 0);
 
   // connect our lower level LCD functions to the higher level driver
   UTIL_LCD_SetFuncDriver(&LCD_Driver);
@@ -486,8 +486,8 @@ void _USBH_Task(void *argument)
                             5, 5, 0xFF000000);
         }
       }
-      BSP_LCD_SwapVisibleBuffer(0);
-      BSP_LCD_SwapDrawBuffer(0);
+      BSP_LCD_SwapVisibleBuffer(0, 0);
+      BSP_LCD_SwapDrawBuffer(0, 0);
     }
   }
   /* USER CODE END 5 */

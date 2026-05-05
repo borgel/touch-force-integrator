@@ -109,11 +109,6 @@
 			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/usbh_conf.c</locationURI>
 		</link>
 		<link>
-			<name>Application/User/usbh_platform.c</name>
-			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/usbh_platform.c</locationURI>
-		</link>
-		<link>
 			<name>Application/User/usbpd.c</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/usbpd.c</locationURI>

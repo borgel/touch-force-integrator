@@ -292,8 +292,6 @@ void UCPD1_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-#if defined(USE_USB_HS)
-// relevant for HOST mode
 #if defined(TCPP0203_SUPPORT)
 /**
   * @brief  This function handles external line interrupt request.
@@ -313,5 +311,4 @@ void EXTI8_IRQHandler(void)
   }
 }
 #endif /* TCPP0203_SUPPORT */
-#endif
 /* USER CODE END 1 */

@@ -158,10 +158,11 @@ int main(void)
   /* Init scheduler */
   osKernelInitialize();
 
-  /* Create the wisecoco frame-publication semaphore before any USB activity
-   * and before the render task can start waiting on it. Static allocation,
-   * doesn't need the scheduler running. */
+  /* Create the wisecoco frame-publication semaphore and the USB host
+   * event-wakeup semaphore before any USB activity and before the
+   * tasks that wait on them. Both are static, no scheduler needed. */
   USBH_HID_WisecocoAppInit();
+  USBH_HostEvent_AppInit();
 
   /* USBPD initialisation ---------------------------------*/
   MX_USBPD_Init();
@@ -461,7 +462,20 @@ void _USB_Task(void *argument)
      * matches the pattern in ST's HID_RTOS reference example. */
     MX_USB_HOST_Process();
     HID_Process();
-    osDelay(1);
+
+    /* The HCD callbacks in usbh_conf.c give this semaphore on every
+     * USB event of interest (URB completion, port attach/detach, port
+     * enable/disable). When USB activity is happening, this take
+     * returns immediately and we pump again — effectively event-driven.
+     *
+     * The timeout is a backstop, not a polling rate: some host state
+     * transitions (timeouts inside USBH_Process, NAK retries that
+     * don't surface as URB transitions, certain phase changes) advance
+     * without firing any HAL callback, so the timeout makes sure we
+     * eventually re-pump the state machine even if no IRQ ever arrives.
+     * Return value is intentionally ignored — whether woken by event
+     * or timeout, the action is the same. */
+    (void)USBH_HostEvent_Wait(5U);
   }
   /* USER CODE END 5 */
 }

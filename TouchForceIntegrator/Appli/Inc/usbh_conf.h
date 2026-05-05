@@ -35,7 +35,21 @@ extern "C" {
 #include "stm32h7rsxx_hal.h"
 
 /* USER CODE BEGIN INCLUDE */
+#include <stdbool.h>
+#include <stdint.h>
 
+/*
+ * USB-host event semaphore plumbing. The HCD callbacks in usbh_conf.c
+ * give a binary semaphore from IRQ context whenever something useful
+ * happens (URB completion, port connect/disconnect/enable/disable),
+ * which the user-side USB pumping task takes to wake up.
+ *
+ * Call USBH_HostEvent_AppInit() once at app startup before the task
+ * starts taking the semaphore. Static allocation, can be called before
+ * the scheduler runs.
+ */
+void USBH_HostEvent_AppInit(void);
+bool USBH_HostEvent_Wait(uint32_t timeoutMs);
 /* USER CODE END INCLUDE */
 
 /** @addtogroup STM32_USB_HOST_LIBRARY

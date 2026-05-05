@@ -22,7 +22,9 @@
 #include "usbh_core.h"
 
 /* USER CODE BEGIN Includes */
-
+#include "FreeRTOS.h"
+#include "semphr.h"
+#include "task.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,7 +39,44 @@
 HCD_HandleTypeDef hhcd_USB_OTG_HS;
 
 /* USER CODE BEGIN 0 */
+/*
+ * Event semaphore for the USB host pumping task. The HCD callbacks below
+ * give this from IRQ context whenever something useful happens (URB
+ * completion, port connect/disconnect, port enable/disable). The user
+ * task takes it with a long timeout, so most state-machine progress is
+ * IRQ-driven and only stalls fall back on the timeout.
+ */
+static StaticSemaphore_t s_usbHostEventSemMeta;
+static SemaphoreHandle_t s_usbHostEventSem;
 
+void USBH_HostEvent_AppInit(void)
+{
+  if (s_usbHostEventSem == NULL)
+  {
+    s_usbHostEventSem = xSemaphoreCreateBinaryStatic(&s_usbHostEventSemMeta);
+  }
+}
+
+bool USBH_HostEvent_Wait(uint32_t timeoutMs)
+{
+  if (s_usbHostEventSem == NULL)
+  {
+    return false;
+  }
+  TickType_t ticks = (timeoutMs == HAL_MAX_DELAY) ? portMAX_DELAY
+                                                  : pdMS_TO_TICKS(timeoutMs);
+  return xSemaphoreTake(s_usbHostEventSem, ticks) == pdTRUE;
+}
+
+static inline void wakeUSBHostTaskFromISR(void)
+{
+  if (s_usbHostEventSem != NULL)
+  {
+    BaseType_t higherPrioWoken = pdFALSE;
+    (void)xSemaphoreGiveFromISR(s_usbHostEventSem, &higherPrioWoken);
+    portYIELD_FROM_ISR(higherPrioWoken);
+  }
+}
 /* USER CODE END 0 */
 
 /* USER CODE BEGIN PFP */
@@ -130,6 +169,7 @@ void HAL_HCD_SOF_Callback(HCD_HandleTypeDef *hhcd)
 void HAL_HCD_Connect_Callback(HCD_HandleTypeDef *hhcd)
 {
   USBH_LL_Connect(hhcd->pData);
+  wakeUSBHostTaskFromISR();
 }
 
 /**
@@ -140,6 +180,7 @@ void HAL_HCD_Connect_Callback(HCD_HandleTypeDef *hhcd)
 void HAL_HCD_Disconnect_Callback(HCD_HandleTypeDef *hhcd)
 {
   USBH_LL_Disconnect(hhcd->pData);
+  wakeUSBHostTaskFromISR();
 }
 
 /**
@@ -155,6 +196,7 @@ void HAL_HCD_HC_NotifyURBChange_Callback(HCD_HandleTypeDef *hhcd, uint8_t chnum,
 #if (USBH_USE_OS == 1)
   USBH_LL_NotifyURBChange(hhcd->pData);
 #endif
+  wakeUSBHostTaskFromISR();
 }
 
 /**
@@ -165,6 +207,7 @@ void HAL_HCD_HC_NotifyURBChange_Callback(HCD_HandleTypeDef *hhcd, uint8_t chnum,
 void HAL_HCD_PortEnabled_Callback(HCD_HandleTypeDef *hhcd)
 {
   USBH_LL_PortEnabled(hhcd->pData);
+  wakeUSBHostTaskFromISR();
 }
 
 /**
@@ -175,6 +218,7 @@ void HAL_HCD_PortEnabled_Callback(HCD_HandleTypeDef *hhcd)
 void HAL_HCD_PortDisabled_Callback(HCD_HandleTypeDef *hhcd)
 {
   USBH_LL_PortDisabled(hhcd->pData);
+  wakeUSBHostTaskFromISR();
 }
 
 /*******************************************************************************

@@ -59,6 +59,7 @@
 extern HCD_HandleTypeDef hhcd_USB_OTG_HS;
 extern TIM_HandleTypeDef htim6;
 extern PCD_HandleTypeDef hpcd_USB_OTG_FS;
+extern LTDC_HandleTypeDef hlcd_ltdc;
 
 /* USER CODE BEGIN EV */
 
@@ -289,6 +290,16 @@ void UCPD1_IRQHandler(void)
   /* USER CODE BEGIN UCPD1_IRQn 1 */
 
   /* USER CODE END UCPD1_IRQn 1 */
+}
+
+/**
+  * @brief This function handles LTDC global interrupt.
+  *        Used for the line-event interrupt that drives VBLANK-synced
+  *        rendering — see HAL_LTDC_LineEventCallback in main.c.
+  */
+void LTDC_IRQHandler(void)
+{
+  HAL_LTDC_IRQHandler(&hlcd_ltdc);
 }
 
 /* USER CODE BEGIN 1 */

@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
 #include "FreeRTOS.h"
+#include "semphr.h"
 #include "cmsis_os2.h"
 #include "usbpd.h"
 #include "usb_host.h"
@@ -109,7 +110,32 @@ size_t __write(int file, unsigned char const *ptr, size_t len);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/*
+ * VBLANK signal for the render task. HAL_LTDC_LineEventCallback below
+ * fires once per frame (configured for line 0, the start of the visible
+ * region after vertical front porch) and gives this semaphore. The
+ * render task takes it between SwapVisibleBuffer (which queues an
+ * address change for the LTDC to apply at next VBLANK) and
+ * SwapDrawBuffer (which is only safe AFTER the LTDC has actually
+ * picked up the new visible buffer — otherwise we'd start drawing
+ * over a buffer the LTDC is still scanning out).
+ */
+static StaticSemaphore_t s_vblankSemMeta;
+static SemaphoreHandle_t s_vblankSem;
 
+void HAL_LTDC_LineEventCallback(LTDC_HandleTypeDef *hltdc)
+{
+  if (s_vblankSem != NULL)
+  {
+    BaseType_t hpw = pdFALSE;
+    (void)xSemaphoreGiveFromISR(s_vblankSem, &hpw);
+    portYIELD_FROM_ISR(hpw);
+  }
+  /* Re-arm for the next frame; HAL_LTDC_ProgramLineEvent disables and
+   * re-enables the line interrupt, so this is the canonical "tick me
+   * again" call from inside the callback. */
+  HAL_LTDC_ProgramLineEvent(hltdc, 0);
+}
 /* USER CODE END 0 */
 
 /**
@@ -503,6 +529,15 @@ void _Render_Task(void *argument)
   assert(res == 0);
   BSP_LCD_EnableDoubleBuffering(0, 1);
 
+  /* VBLANK signaling: create the semaphore, enable the LTDC IRQ, and
+   * arm the first line-event interrupt. From here on the callback in
+   * USER CODE 0 above keeps re-arming itself, so we get one
+   * xSemaphoreGiveFromISR per frame indefinitely. */
+  s_vblankSem = xSemaphoreCreateBinaryStatic(&s_vblankSemMeta);
+  HAL_NVIC_SetPriority(LTDC_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(LTDC_IRQn);
+  HAL_LTDC_ProgramLineEvent(&hlcd_ltdc, 0);
+
   // connect our lower level LCD functions to the higher level driver
   UTIL_LCD_SetFuncDriver(&LCD_Driver);
 
@@ -557,7 +592,19 @@ void _Render_Task(void *argument)
                           5, 5, 0xFF000000);
       }
     }
+
+    /* SwapVisibleBuffer queues a layer-address change that the LTDC
+     * applies at the NEXT VBLANK (RELOAD_VERTICAL_BLANKING was set at
+     * init). Until that VBLANK, the LTDC is still scanning the OLD
+     * buffer, so SwapDrawBuffer would redirect the next iteration's
+     * draws to the still-being-scanned buffer and we'd tear.
+     *
+     * Drain any stale give from earlier in the frame, then wait for
+     * the next VBLANK to confirm the LTDC has actually picked up the
+     * new visible buffer. SwapDrawBuffer is then safe. */
     BSP_LCD_SwapVisibleBuffer(0, 1);
+    (void)xSemaphoreTake(s_vblankSem, 0);
+    (void)xSemaphoreTake(s_vblankSem, pdMS_TO_TICKS(20));
     BSP_LCD_SwapDrawBuffer(0, 1);
   }
 }

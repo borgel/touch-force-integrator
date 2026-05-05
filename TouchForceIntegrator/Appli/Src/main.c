@@ -537,10 +537,10 @@ void _Render_Task(void *argument)
    * keeps the rail stable. */
   BSP_LCD_SetBrightness(0, 20);
   BSP_LCD_Reload(0, BSP_LCD_RELOAD_VERTICAL_BLANKING);
-  BSP_LCD_EnableDoubleBuffering(0, 0);
+  BSP_LCD_EnableDoubleBuffering(0, BSP_LCD_LAYER_BACKGROUND);
   res = BSP_LCD_InitLayer1(0);
   assert(res == 0);
-  BSP_LCD_EnableDoubleBuffering(0, 1);
+  BSP_LCD_EnableDoubleBuffering(0, BSP_LCD_LAYER_FOREGROUND);
 
   /* VBLANK signaling: create the semaphore, enable the LTDC IRQ, and
    * arm the first line-event interrupt. From here on the callback in
@@ -573,16 +573,16 @@ void _Render_Task(void *argument)
   for (int i = 0; i < 2; i++) {
     UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
     UTIL_LCD_FillRect(TOUCH_X0, TOUCH_Y0, TOUCH_W, TOUCH_H, 0xFFFFFFFF);
-    BSP_LCD_SwapVisibleBuffer(0, 0);
-    BSP_LCD_SwapDrawBuffer(0, 0);
+    BSP_LCD_SwapVisibleBuffer(0, BSP_LCD_LAYER_BACKGROUND);
+    BSP_LCD_SwapDrawBuffer(0, BSP_LCD_LAYER_BACKGROUND);
   }
 
   // ---- Layer 1 (foreground): initialize both buffers to fully transparent. ----
   BSP_LCD_SetActiveLayer(0, 1);
   for (int i = 0; i < 2; i++) {
     UTIL_LCD_Clear(KEY_565);
-    BSP_LCD_SwapVisibleBuffer(0, 1);
-    BSP_LCD_SwapDrawBuffer(0, 1);
+    BSP_LCD_SwapVisibleBuffer(0, BSP_LCD_LAYER_FOREGROUND);
+    BSP_LCD_SwapDrawBuffer(0, BSP_LCD_LAYER_FOREGROUND);
   }
 
   struct USBH_LatestWisecocoData snapshot;
@@ -615,10 +615,10 @@ void _Render_Task(void *argument)
      * Drain any stale give from earlier in the frame, then wait for
      * the next VBLANK to confirm the LTDC has actually picked up the
      * new visible buffer. SwapDrawBuffer is then safe. */
-    BSP_LCD_SwapVisibleBuffer(0, 1);
+    BSP_LCD_SwapVisibleBuffer(0, BSP_LCD_LAYER_FOREGROUND);
     (void)xSemaphoreTake(s_vblankSem, 0);
     (void)xSemaphoreTake(s_vblankSem, pdMS_TO_TICKS(20));
-    BSP_LCD_SwapDrawBuffer(0, 1);
+    BSP_LCD_SwapDrawBuffer(0, BSP_LCD_LAYER_FOREGROUND);
   }
 }
 

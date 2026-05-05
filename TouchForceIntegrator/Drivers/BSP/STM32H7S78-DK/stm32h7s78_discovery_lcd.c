@@ -161,7 +161,7 @@ static void LPTIMx_PWM_MspDeInit(LPTIM_HandleTypeDef *hlptim);
 static void LPTIMx_PWM_DeInit(LPTIM_HandleTypeDef *hlptim);
 static void LPTIMx_PWM_Init(LPTIM_HandleTypeDef *hlptim);
 
-static uint32_t getAddressForFb(uint32_t const layer, BSP_LCD_Framebuffer_t const fb);
+static uint32_t getAddressForFb(BSP_LCD_Layer_t const layer, BSP_LCD_Framebuffer_t const fb);
 /**
   * @}
   */
@@ -246,7 +246,7 @@ int32_t BSP_LCD_InitEx(uint32_t Instance, uint32_t Orientation, uint32_t PixelFo
     Lcd_Ctx[Instance].FramebufferVisible[0] = LCD_FRAMEBUFFER_A;
     Lcd_Ctx[Instance].FramebufferDrawing[1] = LCD_FRAMEBUFFER_A;
     Lcd_Ctx[Instance].FramebufferVisible[1] = LCD_FRAMEBUFFER_A;
-    BSP_LCD_SetDrawBuffer(0, 0, Lcd_Ctx[Instance].FramebufferDrawing[0]);
+    BSP_LCD_SetDrawBuffer(0, BSP_LCD_LAYER_BACKGROUND, Lcd_Ctx[Instance].FramebufferDrawing[0]);
 
     /* MSP initialization */
 #if (USE_HAL_LTDC_REGISTER_CALLBACKS == 1)
@@ -1382,26 +1382,26 @@ int32_t BSP_LCD_InitLayer1(uint32_t Instance) {
   return BSP_ERROR_NONE;
 }
 
-static uint32_t getAddressForFb(uint32_t const layer, BSP_LCD_Framebuffer_t const fb) {
-  if (layer == 0) {
+static uint32_t getAddressForFb(BSP_LCD_Layer_t const layer, BSP_LCD_Framebuffer_t const fb) {
+  if (layer == BSP_LCD_LAYER_BACKGROUND) {
     return (fb == LCD_FRAMEBUFFER_A) ? LCD_LAYER_0_ADDRESS : LCD_LAYER_0B_ADDRESS;
   }
-  /* layer 1 */
+  /* foreground */
   return (fb == LCD_FRAMEBUFFER_A) ? LCD_LAYER_1_ADDRESS : LCD_LAYER_1B_ADDRESS;
 }
 
-void BSP_LCD_EnableDoubleBuffering(uint32_t const instance, uint32_t const layer) {
+void BSP_LCD_EnableDoubleBuffering(uint32_t const instance, BSP_LCD_Layer_t const layer) {
   assert(instance == 0);
-  assert(layer < BSP_LCD_LAYER_COUNT);
+  assert(layer == BSP_LCD_LAYER_BACKGROUND || layer == BSP_LCD_LAYER_FOREGROUND);
 
   BSP_LCD_SetVisibleBuffer(instance, layer, LCD_FRAMEBUFFER_A);
   BSP_LCD_SetDrawBuffer(instance, layer, LCD_FRAMEBUFFER_B);
 }
 
 // swap the off-screen draw buffer for this layer
-void BSP_LCD_SwapDrawBuffer(uint32_t const instance, uint32_t const layer) {
+void BSP_LCD_SwapDrawBuffer(uint32_t const instance, BSP_LCD_Layer_t const layer) {
   assert(instance == 0);
-  assert(layer < BSP_LCD_LAYER_COUNT);
+  assert(layer == BSP_LCD_LAYER_BACKGROUND || layer == BSP_LCD_LAYER_FOREGROUND);
 
   if (Lcd_Ctx[instance].FramebufferVisible[layer] == LCD_FRAMEBUFFER_A) {
     Lcd_Ctx[instance].FramebufferDrawing[layer] = LCD_FRAMEBUFFER_B;
@@ -1416,9 +1416,9 @@ void BSP_LCD_SwapDrawBuffer(uint32_t const instance, uint32_t const layer) {
 }
 
 // swap which buffer this layer's LTDC reads from
-void BSP_LCD_SwapVisibleBuffer(uint32_t const instance, uint32_t const layer) {
+void BSP_LCD_SwapVisibleBuffer(uint32_t const instance, BSP_LCD_Layer_t const layer) {
   assert(instance == 0);
-  assert(layer < BSP_LCD_LAYER_COUNT);
+  assert(layer == BSP_LCD_LAYER_BACKGROUND || layer == BSP_LCD_LAYER_FOREGROUND);
 
   if (Lcd_Ctx[instance].FramebufferVisible[layer] == LCD_FRAMEBUFFER_A) {
     Lcd_Ctx[instance].FramebufferVisible[layer] = LCD_FRAMEBUFFER_B;
@@ -1433,16 +1433,16 @@ void BSP_LCD_SwapVisibleBuffer(uint32_t const instance, uint32_t const layer) {
 }
 
 // APIs for manual control if you need it
-void BSP_LCD_SetDrawBuffer(uint32_t const instance, uint32_t const layer, BSP_LCD_Framebuffer_t const targetFramebuffer) {
+void BSP_LCD_SetDrawBuffer(uint32_t const instance, BSP_LCD_Layer_t const layer, BSP_LCD_Framebuffer_t const targetFramebuffer) {
   assert(instance == 0);
-  assert(layer < BSP_LCD_LAYER_COUNT);
+  assert(layer == BSP_LCD_LAYER_BACKGROUND || layer == BSP_LCD_LAYER_FOREGROUND);
 
   Lcd_Ctx[instance].ActiveLayerFBStartAddress[layer] = getAddressForFb(layer, targetFramebuffer);
 }
 
-void BSP_LCD_SetVisibleBuffer(uint32_t const instance, uint32_t const layer, BSP_LCD_Framebuffer_t const targetFramebuffer) {
+void BSP_LCD_SetVisibleBuffer(uint32_t const instance, BSP_LCD_Layer_t const layer, BSP_LCD_Framebuffer_t const targetFramebuffer) {
   assert(instance == 0);
-  assert(layer < BSP_LCD_LAYER_COUNT);
+  assert(layer == BSP_LCD_LAYER_BACKGROUND || layer == BSP_LCD_LAYER_FOREGROUND);
 
   // swap the new buffer into the LTDC for this layer
   BSP_LCD_SetLayerAddress(instance, layer, getAddressForFb(layer, targetFramebuffer));

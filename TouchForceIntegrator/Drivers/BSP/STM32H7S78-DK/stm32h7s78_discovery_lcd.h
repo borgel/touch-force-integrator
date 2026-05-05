@@ -189,6 +189,14 @@ typedef enum {
   LCD_FRAMEBUFFER_B,
 } BSP_LCD_Framebuffer_t;
 
+/* LTDC layer identifiers. Values match the underlying LTDC hardware
+ * layer indices, so casting to uint32_t for ST BSP APIs that take
+ * `LayerIndex` is a no-op. */
+typedef enum {
+  BSP_LCD_LAYER_BACKGROUND = 0,
+  BSP_LCD_LAYER_FOREGROUND = 1,
+} BSP_LCD_Layer_t;
+
 #define BSP_LCD_LAYER_COUNT 2U
 
 // this has N instances, one for each LCD instance
@@ -272,14 +280,14 @@ int32_t BSP_LCD_InitLayer1(uint32_t Instance);
 
 // setup double buffering for the given layer (if not called, that layer
 // stays in single-buffer mode)
-void BSP_LCD_EnableDoubleBuffering(uint32_t const instance, uint32_t const layer);
+void BSP_LCD_EnableDoubleBuffering(uint32_t const instance, BSP_LCD_Layer_t const layer);
 // swap the off-screen draw buffer for this layer
-void BSP_LCD_SwapDrawBuffer(uint32_t const instance, uint32_t const layer);
+void BSP_LCD_SwapDrawBuffer(uint32_t const instance, BSP_LCD_Layer_t const layer);
 // swap which buffer this layer's LTDC reads from
-void BSP_LCD_SwapVisibleBuffer(uint32_t const instance, uint32_t const layer);
+void BSP_LCD_SwapVisibleBuffer(uint32_t const instance, BSP_LCD_Layer_t const layer);
 // APIs for manual control if you need it
-void BSP_LCD_SetDrawBuffer(uint32_t const instance, uint32_t const layer, BSP_LCD_Framebuffer_t const targetFramebuffer);
-void BSP_LCD_SetVisibleBuffer(uint32_t const instance, uint32_t const layer, BSP_LCD_Framebuffer_t const targetFramebuffer);
+void BSP_LCD_SetDrawBuffer(uint32_t const instance, BSP_LCD_Layer_t const layer, BSP_LCD_Framebuffer_t const targetFramebuffer);
+void BSP_LCD_SetVisibleBuffer(uint32_t const instance, BSP_LCD_Layer_t const layer, BSP_LCD_Framebuffer_t const targetFramebuffer);
 
 /* LCD specific APIs: Layer control & LCD HW reset */
 int32_t BSP_LCD_Reload(uint32_t Instance, uint32_t ReloadType);

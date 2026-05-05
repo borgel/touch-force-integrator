@@ -27,6 +27,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "usb_host.h"
+#include "usbd_cdc_if.h"
 #include "stm32_lcd.h"
 #include "stm32h7s78_discovery.h"
 #include "stm32h7s78_discovery_lcd.h"
@@ -34,6 +35,7 @@
 #include "usbh_hid_wisecoco.h"
 
 #include <stdio.h>
+#include <string.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -63,7 +65,12 @@ const osThreadAttr_t USBH_Task_attributes = {
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
-
+osThreadId_t CDC_TaskHandle;
+const osThreadAttr_t CDC_Task_attributes = {
+  .name = "CDC_Task",
+  .stack_size = 512 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -72,6 +79,7 @@ static void MX_GPDMA1_Init(void);
 static void MX_UART4_Init(void);
 static void MX_UCPD1_Init(void);
 void _USBH_Task(void *argument);
+void _CDC_Task(void *argument);
 
 /* USER CODE BEGIN PFP */
 #if defined(__ICCARM__)
@@ -162,7 +170,7 @@ int main(void)
   USBH_TaskHandle = osThreadNew(_USBH_Task, NULL, &USBH_Task_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
-  /* add threads, ... */
+  CDC_TaskHandle = osThreadNew(_CDC_Task, NULL, &CDC_Task_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -474,6 +482,57 @@ void _USBH_Task(void *argument)
     }
   }
   /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header__CDC_Task */
+/**
+  * @brief  Echo example for the USB CDC virtual COM port. Waits for the host
+  *         to enumerate the device, sends a greeting, then echoes any text
+  *         the host sends back as "echo: <text>\r\n".
+  * @param  argument: Not used
+  * @retval None
+  */
+/* USER CODE END Header__CDC_Task */
+void _CDC_Task(void *argument)
+{
+  (void)argument;
+
+  /* MX_USB_DEVICE_Init runs from _USBH_Task and calls CDC_AppInit before
+   * starting the USB stack, so by the time the host has enumerated the
+   * device the FreeRTOS objects backing CDC_Read / CDC_Write definitely
+   * exist.  hUsbDeviceFS lives in usb_device.c. */
+  extern USBD_HandleTypeDef hUsbDeviceFS;
+
+  while (hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED)
+  {
+    osDelay(100);
+  }
+
+  static const char greeting[] = "[CDC ready - type something]\r\n";
+  (void)CDC_Write((const uint8_t *)greeting, sizeof(greeting) - 1U, 100U);
+
+  uint8_t  rxBuf[64];
+  char     txBuf[80];
+
+  for (;;)
+  {
+    size_t n = CDC_Read(rxBuf, sizeof(rxBuf), osWaitForever);
+    if (n == 0U)
+    {
+      continue;
+    }
+
+    /* Cap the printed payload at what fits after "echo: " and "\r\n". */
+    if (n > sizeof(txBuf) - 9U)
+    {
+      n = sizeof(txBuf) - 9U;
+    }
+    int len = snprintf(txBuf, sizeof(txBuf), "echo: %.*s\r\n", (int)n, (const char *)rxBuf);
+    if (len > 0)
+    {
+      (void)CDC_Write((const uint8_t *)txBuf, (uint16_t)len, 100U);
+    }
+  }
 }
 
 /**

@@ -22,7 +22,9 @@
 #include "usbd_cdc_if.h"
 
 /* USER CODE BEGIN INCLUDE */
-
+#include "FreeRTOS.h"
+#include "stream_buffer.h"
+#include "semphr.h"
 /* USER CODE END INCLUDE */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -95,7 +97,16 @@ uint8_t UserRxBufferFS[APP_RX_DATA_SIZE];
 uint8_t UserTxBufferFS[APP_TX_DATA_SIZE];
 
 /* USER CODE BEGIN PRIVATE_VARIABLES */
+/* RX byte stream from USB ISR to consumer thread. */
+#define CDC_RX_STREAM_LEN  1024U
+static StaticStreamBuffer_t cdcRxStreamMeta;
+static uint8_t              cdcRxStreamStorage[CDC_RX_STREAM_LEN + 1];
+static StreamBufferHandle_t cdcRxStream;
 
+/* TX-done signal from USB ISR to producer thread.  Initially "given" so the
+ * first CDC_Write() can take it without waiting. */
+static StaticSemaphore_t cdcTxDoneMeta;
+static SemaphoreHandle_t cdcTxDone;
 /* USER CODE END PRIVATE_VARIABLES */
 
 /**
@@ -264,6 +275,14 @@ static int8_t CDC_Control_FS(uint8_t cmd, uint8_t* pbuf, uint16_t length)
 static int8_t CDC_Receive_FS(uint8_t* Buf, uint32_t *Len)
 {
   /* USER CODE BEGIN 11 */
+  /* Push received bytes into the RX stream BEFORE re-arming the next receive,
+   * since the next receive will overwrite Buf. */
+  if (cdcRxStream != NULL && Len != NULL && *Len > 0U)
+  {
+    BaseType_t higherPrioWoken = pdFALSE;
+    (void)xStreamBufferSendFromISR(cdcRxStream, Buf, *Len, &higherPrioWoken);
+    portYIELD_FROM_ISR(higherPrioWoken);
+  }
   USBD_CDC_SetRxBuffer(&hUsbDeviceFS, &Buf[0]);
   USBD_CDC_ReceivePacket(&hUsbDeviceFS);
   return (USBD_OK);
@@ -310,11 +329,83 @@ static int8_t CDC_TransmitCplt_FS(uint8_t *Buf, uint32_t *Len, uint8_t epnum)
   UNUSED(Buf);
   UNUSED(Len);
   UNUSED(epnum);
+  if (cdcTxDone != NULL)
+  {
+    BaseType_t higherPrioWoken = pdFALSE;
+    (void)xSemaphoreGiveFromISR(cdcTxDone, &higherPrioWoken);
+    portYIELD_FROM_ISR(higherPrioWoken);
+  }
   /* USER CODE END 14 */
   return result;
 }
 
 /* USER CODE BEGIN PRIVATE_FUNCTIONS_IMPLEMENTATION */
+
+/**
+ * @brief  Create the FreeRTOS objects backing CDC_Read / CDC_Write.
+ *         Must be called once, after the kernel is initialized and before
+ *         the USB device stack starts.
+ */
+void CDC_AppInit(void)
+{
+  if (cdcRxStream == NULL)
+  {
+    cdcRxStream = xStreamBufferCreateStatic(sizeof(cdcRxStreamStorage),
+                                            1U,
+                                            cdcRxStreamStorage,
+                                            &cdcRxStreamMeta);
+  }
+  if (cdcTxDone == NULL)
+  {
+    cdcTxDone = xSemaphoreCreateBinaryStatic(&cdcTxDoneMeta);
+    /* No transmit in flight at startup, so the first writer can proceed. */
+    (void)xSemaphoreGive(cdcTxDone);
+  }
+}
+
+/**
+ * @brief  Block until up to maxLen bytes are available from the host, or
+ *         until timeoutMs elapses with nothing received.
+ * @retval Number of bytes copied into buf (0 on timeout or before init).
+ */
+size_t CDC_Read(uint8_t *buf, size_t maxLen, uint32_t timeoutMs)
+{
+  if (cdcRxStream == NULL || buf == NULL || maxLen == 0U)
+  {
+    return 0U;
+  }
+  TickType_t ticks = (timeoutMs == HAL_MAX_DELAY) ? portMAX_DELAY
+                                                  : pdMS_TO_TICKS(timeoutMs);
+  return xStreamBufferReceive(cdcRxStream, buf, maxLen, ticks);
+}
+
+/**
+ * @brief  Send len bytes to the host, waiting up to timeoutMs for any
+ *         in-flight transmit to complete first.
+ * @retval USBD_OK on success, USBD_BUSY if timed out waiting for the
+ *         previous transmit, USBD_FAIL on lower-layer error.
+ */
+uint8_t CDC_Write(const uint8_t *buf, uint16_t len, uint32_t timeoutMs)
+{
+  if (cdcTxDone == NULL || buf == NULL || len == 0U)
+  {
+    return USBD_FAIL;
+  }
+  TickType_t ticks = (timeoutMs == HAL_MAX_DELAY) ? portMAX_DELAY
+                                                  : pdMS_TO_TICKS(timeoutMs);
+  if (xSemaphoreTake(cdcTxDone, ticks) != pdTRUE)
+  {
+    return USBD_BUSY;
+  }
+  uint8_t result = CDC_Transmit_FS((uint8_t *)buf, len);
+  if (result != USBD_OK)
+  {
+    /* No completion callback will fire — return the token so we don't
+     * deadlock the next caller. */
+    (void)xSemaphoreGive(cdcTxDone);
+  }
+  return result;
+}
 
 /* USER CODE END PRIVATE_FUNCTIONS_IMPLEMENTATION */
 

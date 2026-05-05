@@ -64,7 +64,9 @@ USBD_HandleTypeDef hUsbDeviceFS;
 void MX_USB_DEVICE_Init(void)
 {
   /* USER CODE BEGIN USB_DEVICE_Init_PreTreatment */
-
+  /* Create the RX stream buffer and TX-done semaphore before the USB stack
+   * starts, so the ISR-side callbacks always see initialized handles. */
+  CDC_AppInit();
   /* USER CODE END USB_DEVICE_Init_PreTreatment */
 
   /* Init Device Library, add supported class and start the library. */

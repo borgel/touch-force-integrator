@@ -109,6 +109,19 @@ extern USBD_CDC_ItfTypeDef USBD_Interface_fops_FS;
 uint8_t CDC_Transmit_FS(uint8_t* Buf, uint16_t Len);
 
 /* USER CODE BEGIN EXPORTED_FUNCTIONS */
+#include <stddef.h>
+
+/** Initialize the FreeRTOS objects used by CDC_Read / CDC_Write.
+ *  Call once after osKernelInitialize() and before USBD_Init(). */
+void CDC_AppInit(void);
+
+/** Pull up to maxLen bytes from the host. Blocks up to timeoutMs.
+ *  Returns the number of bytes actually copied into buf. */
+size_t CDC_Read(uint8_t *buf, size_t maxLen, uint32_t timeoutMs);
+
+/** Send len bytes to the host. Waits up to timeoutMs for any previous
+ *  transmit to complete. Returns USBD_OK / USBD_BUSY / USBD_FAIL. */
+uint8_t CDC_Write(const uint8_t *buf, uint16_t len, uint32_t timeoutMs);
 
 /* USER CODE END EXPORTED_FUNCTIONS */
 

@@ -58,13 +58,8 @@ ApplicationTypeDef Appli_state = APPLICATION_IDLE;
  * -- Insert your variables declaration here --
  */
 /* USER CODE BEGIN 0 */
-#if defined (USE_USB_HS)
 USBH_HandleTypeDef hUsbHostHS;
 #define hUsbHost hUsbHostHS
-#else
-USBH_HandleTypeDef hUsbHostFS;
-#define hUsbHost hUsbHostFS
-#endif
 /* USER CODE END 0 */
 
 /*
@@ -103,11 +98,7 @@ void MX_USB_HOST_Init(void)
     Error_Handler();
   }
 
-#if defined(USE_USB_HS)
   USBH_UsrLog(" **** USB OTG HS Host **** \n");
-#else
-  USBH_UsrLog(" **** USB OTG FS Host **** \n");
-#endif
   USBH_UsrLog("USB Host library started.\n");
   USBH_UsrLog("Starting HID Application");
   USBH_UsrLog("Connect your HID Device\n");

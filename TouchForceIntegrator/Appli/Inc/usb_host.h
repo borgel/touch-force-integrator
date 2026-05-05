@@ -49,11 +49,7 @@ extern "C" {
   * @{
   */
 
-#if defined (USE_USB_HS)
 extern USBH_HandleTypeDef hUsbHostHS;
-#else
-extern USBH_HandleTypeDef hUsbHostFS;
-#endif
 
 /**
   * @}

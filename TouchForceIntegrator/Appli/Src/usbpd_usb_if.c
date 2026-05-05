@@ -112,11 +112,7 @@
 /* USER CODE BEGIN USB Private variables */
 /* USER CODE END USB Private variables */
 
-#if defined (USE_USB_HS)
 #define hUsbHost hUsbHostHS
-#else
-#define hUsbHost hUsbHostFS
-#endif
 
 /* Exported functions ---------------------------------------------------------*/
 /**

@@ -67,6 +67,13 @@ osThreadId_t USB_TaskHandle;
 const osThreadAttr_t USB_Task_attributes = {
   .name = "USB_Task",
   .stack_size = 512 * 4,
+  /* Stay at Normal — same as USBH_Thread (the USB stack's internal
+   * thread, see USBH_PROCESS_PRIO in usbh_conf.h). Both call
+   * USBH_Process, which mutates phost->gState and isn't reentrant.
+   * Same priority means FreeRTOS round-robin only preempts on tick
+   * boundaries (~1 ms), keeping the race window small. Higher priority
+   * here would let our pre-empt USBH_Thread mid-USBH_Process and
+   * corrupt the state machine. */
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
@@ -523,6 +530,12 @@ void _Render_Task(void *argument)
 
   res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
   assert(res == 0);
+  /* Drop the backlight: when the board is ST-Link-powered, peak
+   * DMA2D + USB + 50%-backlight current sagged the 5V rail enough
+   * to glitch the LCD interface (LD10 visibly flickered in sync
+   * with display flicker). 20% is still readable indoors and
+   * keeps the rail stable. */
+  BSP_LCD_SetBrightness(0, 20);
   BSP_LCD_Reload(0, BSP_LCD_RELOAD_VERTICAL_BLANKING);
   BSP_LCD_EnableDoubleBuffering(0, 0);
   res = BSP_LCD_InitLayer1(0);

@@ -460,23 +460,30 @@ void _USBH_Task(void *argument)
     /* HID Menu Process */
     HID_Process();
 
+    // 4:3 touch surface anchored top-left of the 800x480 landscape LCD (2880:2160 = 4:3),
+    // leaving the right edge open
+    const uint16_t TOUCH_W = 640;
+    const uint16_t TOUCH_H = 480;
+    const uint16_t TOUCH_X0 = 0;
+    const uint16_t TOUCH_Y0 = 0;
+
+    // this is a pointer to an internal data structure, so only get it once
+    latestTouches = USBH_HID_WisecocoGetLatestTouches();
+
     if(HAL_GetTick() - lastUpdate > 30) {
       lastUpdate = HAL_GetTick();
 
-      // draw a box for every finger
-      latestTouches = USBH_HID_WisecocoGetLatestTouches();
-
       UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
 
-      // draw a background rect at the same aspect ratio as the display
-      UTIL_LCD_FillRect(0, 0, 360, 480, 0xFFFFFFFF);
+      UTIL_LCD_FillRect(TOUCH_X0, TOUCH_Y0, TOUCH_W, TOUCH_H, 0xFFFFFFFF);
 
       // draw a square at each finger location
       for(unsigned i = 0; i < latestTouches->liveTouches; i++) {
         struct USBH_WCSingleFinger const * const f = &latestTouches->fingers[i];
         if(f->touching) {
-          // these will be offset, but we're fine with that for now
-          UTIL_LCD_FillRect(f->xFrac * 360, f->yFrac * 480, 5, 5, 0xFF000000);
+          UTIL_LCD_FillRect(TOUCH_X0 + f->xFrac * TOUCH_W,
+                            TOUCH_Y0 + f->yFrac * TOUCH_H,
+                            5, 5, 0xFF000000);
         }
       }
       BSP_LCD_SwapVisibleBuffer(0);

@@ -52,7 +52,14 @@ extern "C" {
   * @{
   */
 
-#define HID_MIN_POLL                                10U
+/* Lower bound on the HID interrupt-IN poll period (ms at FS, microframes
+ * at HS), applied as a floor against the device's declared bInterval.
+ * ST's default of 10 caps any HID device at 100 Hz. The wisecoco
+ * touchscreen declares bInterval = 1 but its firmware can't actually
+ * service polls that fast — it NAKs forever at <= 3 ms. Empirically
+ * tuned: 4 ms (250 Hz) is the floor. Bumping below 4 here will likely
+ * break the wisecoco. */
+#define HID_MIN_POLL                                4U
 #define HID_REPORT_SIZE                             16U
 #define HID_MAX_USAGE                               10U
 #define HID_MAX_NBR_REPORT_FMT                      10U

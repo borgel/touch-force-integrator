@@ -438,16 +438,49 @@ void _USBH_Task(void *argument)
   assert(res == 0);
   BSP_LCD_Reload(0, BSP_LCD_RELOAD_VERTICAL_BLANKING);
   BSP_LCD_EnableDoubleBuffering(0, 0);
+  res = BSP_LCD_InitLayer1(0);
+  assert(res == 0);
+  BSP_LCD_EnableDoubleBuffering(0, 1);
 
   // connect our lower level LCD functions to the higher level driver
   UTIL_LCD_SetFuncDriver(&LCD_Driver);
-  UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
 
-  UTIL_LCD_FillRect(10, 10, 300, 300, UTIL_LCD_COLOR_BLUE);
+  // 4:3 touch surface anchored top-left of the 800x480 landscape LCD (2880:2160 = 4:3),
+  // leaving the right 160-px strip for future metadata.
+  const uint16_t TOUCH_W = 640;
+  const uint16_t TOUCH_H = 480;
+  const uint16_t TOUCH_X0 = 0;
+  const uint16_t TOUCH_Y0 = 0;
 
-  UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_GREEN);
-  UTIL_LCD_SetFont(&Font16);
-  UTIL_LCD_DisplayStringAt(350, 20, (uint8_t*)"Boop", LEFT_MODE);
+  // Layer 1 (foreground) uses color keying for transparency: any pixel of
+  // KEY_565 on layer 1 lets the underlying layer 0 (background) show through.
+  // KEY_888 is the same color in 24-bit form for the LTDC color-key register.
+  const uint32_t KEY_565 = LCD_COLOR_RGB565_MAGENTA;
+  const uint32_t KEY_888 = 0x00FF00FFU;
+  BSP_LCD_SetColorKeying(0, 1, KEY_888);
+
+  // ---- Layer 0 (background): drawn ONCE. ----
+  // Draw the same content into both buffers so the very first SwapVisible
+  // doesn't briefly show whatever uninitialized SDRAM contained.
+  BSP_LCD_SetActiveLayer(0, 0);
+  for (int i = 0; i < 2; i++) {
+    UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
+    UTIL_LCD_FillRect(TOUCH_X0, TOUCH_Y0, TOUCH_W, TOUCH_H, 0xFFFFFFFF);
+    BSP_LCD_SwapVisibleBuffer(0, 0);
+    BSP_LCD_SwapDrawBuffer(0, 0);
+  }
+  // After two swaps we're back where we started; no further layer-0 work.
+
+  // ---- Layer 1 (foreground): initialize both buffers to fully transparent. ----
+  // Outside the touch area is filled to KEY once and never touched again.
+  // Inside the touch area gets cleared+redrawn each frame.
+  BSP_LCD_SetActiveLayer(0, 1);
+  for (int i = 0; i < 2; i++) {
+    UTIL_LCD_Clear(KEY_565);
+    BSP_LCD_SwapVisibleBuffer(0, 1);
+    BSP_LCD_SwapDrawBuffer(0, 1);
+  }
+  // Active layer stays at 1 for the render loop below.
 
   struct USBH_LatestWisecocoData const * latestTouches;
 
@@ -460,22 +493,16 @@ void _USBH_Task(void *argument)
     /* HID Menu Process */
     HID_Process();
 
-    // 4:3 touch surface anchored top-left of the 800x480 landscape LCD (2880:2160 = 4:3),
-    // leaving the right edge open
-    const uint16_t TOUCH_W = 640;
-    const uint16_t TOUCH_H = 480;
-    const uint16_t TOUCH_X0 = 0;
-    const uint16_t TOUCH_Y0 = 0;
-
     // this is a pointer to an internal data structure, so only get it once
     latestTouches = USBH_HID_WisecocoGetLatestTouches();
 
     if(HAL_GetTick() - lastUpdate > 30) {
       lastUpdate = HAL_GetTick();
 
-      UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
-
-      UTIL_LCD_FillRect(TOUCH_X0, TOUCH_Y0, TOUCH_W, TOUCH_H, 0xFFFFFFFF);
+      // Clear only the touch area in layer 1 to KEY, erasing last frame's
+      // dots. Background (layer 0) and the metadata strip on layer 1 are
+      // both untouched, saving ~75% of the per-frame fill work.
+      UTIL_LCD_FillRect(TOUCH_X0, TOUCH_Y0, TOUCH_W, TOUCH_H, KEY_565);
 
       // draw a square at each finger location
       for(unsigned i = 0; i < latestTouches->liveTouches; i++) {
@@ -486,8 +513,8 @@ void _USBH_Task(void *argument)
                             5, 5, 0xFF000000);
         }
       }
-      BSP_LCD_SwapVisibleBuffer(0, 0);
-      BSP_LCD_SwapDrawBuffer(0, 0);
+      BSP_LCD_SwapVisibleBuffer(0, 1);
+      BSP_LCD_SwapDrawBuffer(0, 1);
     }
   }
   /* USER CODE END 5 */

@@ -1,0 +1,3 @@
+[submodule "TouchForceIntegrator/Middlewares/nanopb"]
+	path = TouchForceIntegrator/Middlewares/nanopb
+	url = https://github.com/nanopb/nanopb.git

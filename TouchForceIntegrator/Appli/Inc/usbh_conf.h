@@ -1,42 +1,18 @@
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file           : usbh_conf.h
-  * @version        : v1.1_Cube
-  * @brief          : Header for usbh_conf.c file.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2024 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
-/* USER CODE END Header */
-
-/* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef __USBH_CONF_H
 #define __USBH_CONF_H
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Includes ------------------------------------------------------------------*/
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "main.h"
-
-#include "stm32h7rsxx.h"
-#include "stm32h7rsxx_hal.h"
-
-/* USER CODE BEGIN INCLUDE */
 #include <stdbool.h>
 #include <stdint.h>
+
+#include "main.h"
+#include "stm32h7rsxx.h"
+#include "stm32h7rsxx_hal.h"
 
 /*
  * USB-host event semaphore plumbing. The HCD callbacks in usbh_conf.c
@@ -50,63 +26,19 @@ extern "C" {
  */
 void USBH_HostEvent_AppInit(void);
 bool USBH_HostEvent_Wait(uint32_t timeoutMs);
-/* USER CODE END INCLUDE */
 
-/** @addtogroup STM32_USB_HOST_LIBRARY
-  * @{
-  */
+#define USBH_MAX_NUM_ENDPOINTS         4U
+#define USBH_MAX_NUM_INTERFACES        4U
+#define USBH_MAX_NUM_CONFIGURATION     4U
+#define USBH_KEEP_CFG_DESCRIPTOR       1U
+#define USBH_MAX_NUM_SUPPORTED_CLASS   4U
+#define USBH_MAX_SIZE_CONFIGURATION    2048U
+#define USBH_MAX_DATA_BUFFER           2048U
+#define USBH_DEBUG_LEVEL               3U
+#define USBH_USE_OS                    1U
 
-/** @defgroup USBH_CONF
-  * @brief usb host low level driver configuration file
-  * @{
-  */
-
-/** @defgroup USBH_CONF_Exported_Variables USBH_CONF_Exported_Variables
-  * @brief Public variables.
-  * @{
-  */
-
-/**
-  * @}
-  */
-
-/** @defgroup USBH_CONF_Exported_Defines USBH_CONF_Exported_Defines
-  * @brief Defines for configuration of the Usb host.
-  * @{
-  */
-
-/*----------   -----------*/
-#define USBH_MAX_NUM_ENDPOINTS      4U
-
-/*----------   -----------*/
-#define USBH_MAX_NUM_INTERFACES      4U
-
-/*----------   -----------*/
-#define USBH_MAX_NUM_CONFIGURATION      4U
-
-/*----------   -----------*/
-#define USBH_KEEP_CFG_DESCRIPTOR      1U
-
-/*----------   -----------*/
-#define USBH_MAX_NUM_SUPPORTED_CLASS      4U
-
-/*----------   -----------*/
-#define USBH_MAX_SIZE_CONFIGURATION      2048U
-
-/*----------   -----------*/
-#define USBH_MAX_DATA_BUFFER      2048U
-
-/*----------   -----------*/
-// 2 was default
-#define USBH_DEBUG_LEVEL      3U
-
-/*----------   -----------*/
-#define USBH_USE_OS      1U
-
-/****************************************/
-/* #define for FS and HS identification */
-#define HOST_HS         0
-#define HOST_FS         1
+#define HOST_HS                        0
+#define HOST_FS                        1
 
 #if (USBH_USE_OS == 1)
   #include "cmsis_os.h"
@@ -114,30 +46,10 @@ bool USBH_HostEvent_Wait(uint32_t timeoutMs);
   #define USBH_PROCESS_STACK_SIZE    ((uint16_t)4096)
 #endif /* (USBH_USE_OS == 1) */
 
-/**
-  * @}
-  */
-
-/** @defgroup USBH_CONF_Exported_Macros USBH_CONF_Exported_Macros
-  * @brief Aliases.
-  * @{
-  */
-
-/* Memory management macros */
-
-/** Alias for memory allocation. */
 #define USBH_malloc         malloc
-
-/** Alias for memory release. */
 #define USBH_free           free
-
-/** Alias for memory set. */
 #define USBH_memset         memset
-
-/** Alias for memory copy. */
 #define USBH_memcpy         memcpy
-
-/* DEBUG macros */
 
 #if (USBH_DEBUG_LEVEL > 0U)
 #define  USBH_UsrLog(...)   do { \
@@ -149,7 +61,6 @@ bool USBH_HostEvent_Wait(uint32_t timeoutMs);
 #endif
 
 #if (USBH_DEBUG_LEVEL > 1U)
-
 #define  USBH_ErrLog(...) do { \
                             printf("ERROR: "); \
                             printf(__VA_ARGS__); \
@@ -169,41 +80,8 @@ bool USBH_HostEvent_Wait(uint32_t timeoutMs);
 #define USBH_DbgLog(...) do {} while (0)
 #endif
 
-/**
-  * @}
-  */
-
-/** @defgroup USBH_CONF_Exported_Types USBH_CONF_Exported_Types
-  * @brief Types.
-  * @{
-  */
-
-/**
-  * @}
-  */
-
-/** @defgroup USBH_CONF_Exported_FunctionsPrototype USBH_CONF_Exported_FunctionsPrototype
-  * @brief Declaration of public functions for Usb host.
-  * @{
-  */
-
-/* Exported functions -------------------------------------------------------*/
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
-/**
-  * @}
-  */
-
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* __USBH_CONF_H */
-

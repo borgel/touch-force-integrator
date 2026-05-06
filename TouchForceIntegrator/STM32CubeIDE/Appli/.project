@@ -484,6 +484,36 @@
 			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_pipes.c</locationURI>
 		</link>
 		<link>
+			<name>Middlewares/nanopb/pb_common.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/nanopb/pb_common.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/nanopb/pb_common.h</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/nanopb/pb_common.h</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/nanopb/pb_decode.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/nanopb/pb_decode.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/nanopb/pb_decode.h</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/nanopb/pb_decode.h</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/nanopb/pb_encode.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/nanopb/pb_encode.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/nanopb/pb_encode.h</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/nanopb/pb_encode.h</locationURI>
+		</link>
+		<link>
 			<name>Utilities/Fonts/LICENSE.md</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Utilities/Fonts/LICENSE.md</locationURI>

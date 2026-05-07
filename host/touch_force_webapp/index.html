@@ -136,6 +136,8 @@
     <button id="btn-connect"    class="primary"   >Connect</button>
     <button id="btn-disconnect" class="danger"    disabled>Disconnect</button>
     <button id="btn-uptime"     class="secondary" disabled>Get Uptime</button>
+    <button id="btn-stream"     class="secondary" disabled>Streaming: ON</button>
+    <button id="btn-telemetry"  class="primary"   disabled>Get Telemetry</button>
   </div>
 
   <div id="status-line" class="status-line">Not connected</div>
@@ -375,6 +377,8 @@ const statusEl     = document.getElementById("status-line");
 const btnConnect   = document.getElementById("btn-connect");
 const btnDisconnect= document.getElementById("btn-disconnect");
 const btnUptime    = document.getElementById("btn-uptime");
+const btnStream    = document.getElementById("btn-stream");
+const btnTelemetry = document.getElementById("btn-telemetry");
 
 function ts() {
   const d = new Date();
@@ -435,6 +439,8 @@ async function openPort(p) {
   btnConnect.disabled    = true;
   btnDisconnect.disabled = false;
   btnUptime.disabled     = false;
+  btnStream.disabled     = false;
+  btnTelemetry.disabled  = false;
 
   setStatus("Connected", "connected");
   logInfo("Port opened at 115200 baud");
@@ -607,6 +613,8 @@ async function doDisconnect(reason) {
   btnConnect.disabled    = false;
   btnDisconnect.disabled = true;
   btnUptime.disabled     = true;
+  btnStream.disabled     = true;
+  btnTelemetry.disabled  = true;
 
   setStatus("Not connected");
   logInfo(reason || "Disconnected");
@@ -638,6 +646,48 @@ btnUptime.addEventListener("click", async () => {
     logErr(`Unexpected response payload: ${resp.payload}`);
   } catch (e) {
     logErr("Get Uptime failed: " + e.message);
+  }
+});
+
+// Streaming toggle. Fire-and-forget: UI updates optimistically.
+let streamingState = true;  // matches firmware default
+
+btnStream.addEventListener("click", async () => {
+  const newState = !streamingState;
+  const frame = Frame.create({
+    request: {
+      requestId: nextRequestId(),
+      setTouchStreaming: { enabled: newState },
+    },
+  });
+  try {
+    await sendFrame(frame);
+    streamingState = newState;
+    btnStream.textContent = streamingState ? "Streaming: ON" : "Streaming: OFF";
+    logInfo(`→ SetTouchStreaming(enabled=${newState})`);
+  } catch (e) {
+    logErr("SetTouchStreaming failed: " + e.message);
+  }
+});
+
+btnTelemetry.addEventListener("click", async () => {
+  logInfo("→ GetTelemetryRequest");
+  try {
+    const resp = await sendRequest(() => ({ getTelemetry: {} }));
+    if (resp.payload === "error") {
+      logErr(`MCU error: code=${resp.error.code} message="${resp.error.message}"`);
+      return;
+    }
+    if (resp.payload === "getTelemetry") {
+      const t = resp.getTelemetry;
+      const total = t.streamingEventsSent + t.streamingTxFails;
+      const rate = total > 0 ? ((t.streamingTxFails / total) * 100).toFixed(3) : "0.000";
+      logInfo(`← telemetry: sent=${t.streamingEventsSent} fails=${t.streamingTxFails} (${rate}%)`);
+      return;
+    }
+    logErr(`Unexpected response payload: ${resp.payload}`);
+  } catch (e) {
+    logErr("Get Telemetry failed: " + e.message);
   }
 });
 </script>

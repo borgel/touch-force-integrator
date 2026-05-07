@@ -181,3 +181,31 @@ def test_link_set_touch_streaming_disabled_writes_frame() -> None:
     # because the inner message was set via SetInParent().
     assert frame.request.WhichOneof("payload") == "set_touch_streaming"
     assert frame.request.set_touch_streaming.enabled is False
+
+
+# ---------------------------------------------------------------------------
+# Link.get_telemetry
+# ---------------------------------------------------------------------------
+
+def test_link_get_telemetry_round_trip() -> None:
+    frame = pb.Frame()
+    frame.response.request_id = 5
+    frame.response.get_telemetry.streaming_events_sent = 12345
+    frame.response.get_telemetry.streaming_tx_fails = 7
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+    t = _LoopTransport(wire)
+    lnk = link.Link(t, _next_id=lambda: 5)
+
+    sent, fails = lnk.get_telemetry()
+
+    assert sent == 12345
+    assert fails == 7
+
+    # Verify the host sent a properly-framed GetTelemetryRequest.
+    sent_bytes = bytes(t.outgoing)
+    decoded = link.cobs_decode(sent_bytes[:-1])
+    out_frame = pb.Frame()
+    out_frame.ParseFromString(decoded)
+    assert out_frame.WhichOneof("kind") == "request"
+    assert out_frame.request.WhichOneof("payload") == "get_telemetry"

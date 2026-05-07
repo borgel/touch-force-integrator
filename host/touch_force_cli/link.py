@@ -212,3 +212,22 @@ class Link:
         outgoing.request.request_id = rid
         outgoing.request.set_touch_streaming.enabled = enabled
         write_frame(self._t, outgoing.SerializeToString())
+
+    def get_telemetry(self) -> tuple[int, int]:
+        """Send GetTelemetryRequest, return (events_sent, tx_fails)."""
+        rid = self._next_id()
+        outgoing = _pb.Frame()
+        outgoing.request.request_id = rid
+        outgoing.request.get_telemetry.SetInParent()
+        write_frame(self._t, outgoing.SerializeToString())
+
+        resp = self._read_response(rid)
+        which = resp.WhichOneof("payload")
+        if which == "error":
+            raise RemoteError(code=resp.error.code, message=resp.error.message)
+        if which == "get_telemetry":
+            return (
+                resp.get_telemetry.streaming_events_sent,
+                resp.get_telemetry.streaming_tx_fails,
+            )
+        raise ProtocolError(f"unexpected response payload: {which!r}")

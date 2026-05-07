@@ -198,3 +198,17 @@ class Link:
                     f"got {resp.request_id}"
                 )
             return resp
+
+    def set_touch_streaming(self, *, enabled: bool) -> None:
+        """Enable or disable touch streaming on the MCU. Fire-and-forget.
+
+        No Response is sent by the firmware; this method writes the Frame
+        and returns. Reliability comes from USB CDC; the host confirms
+        the change took effect by observing the event stream (events stop
+        when enabled=False).
+        """
+        rid = self._next_id()
+        outgoing = _pb.Frame()
+        outgoing.request.request_id = rid
+        outgoing.request.set_touch_streaming.enabled = enabled
+        write_frame(self._t, outgoing.SerializeToString())

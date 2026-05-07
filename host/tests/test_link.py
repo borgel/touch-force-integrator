@@ -143,3 +143,41 @@ def test_link_propagates_error_response() -> None:
         lnk.get_uptime()
     assert exc_info.value.code == 1
     assert "unknown command" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Link.set_touch_streaming (fire-and-forget)
+# ---------------------------------------------------------------------------
+
+def test_link_set_touch_streaming_enabled_writes_frame() -> None:
+    t = _LoopTransport()  # no incoming bytes; method must NOT read.
+    lnk = link.Link(t, _next_id=lambda: 99)
+
+    lnk.set_touch_streaming(enabled=True)
+
+    sent = bytes(t.outgoing)
+    assert sent.endswith(b"\x00")
+    decoded = link.cobs_decode(sent[:-1])
+    frame = pb.Frame()
+    frame.ParseFromString(decoded)
+    assert frame.WhichOneof("kind") == "request"
+    assert frame.request.request_id == 99
+    assert frame.request.WhichOneof("payload") == "set_touch_streaming"
+    assert frame.request.set_touch_streaming.enabled is True
+
+
+def test_link_set_touch_streaming_disabled_writes_frame() -> None:
+    t = _LoopTransport()
+    lnk = link.Link(t, _next_id=lambda: 100)
+
+    lnk.set_touch_streaming(enabled=False)
+
+    sent = bytes(t.outgoing)
+    decoded = link.cobs_decode(sent[:-1])
+    frame = pb.Frame()
+    frame.ParseFromString(decoded)
+    # proto3 elides default-false on the wire — that's fine; the field
+    # just isn't present, but WhichOneof still resolves to the oneof slot
+    # because the inner message was set via SetInParent().
+    assert frame.request.WhichOneof("payload") == "set_touch_streaming"
+    assert frame.request.set_touch_streaming.enabled is False

@@ -158,28 +158,43 @@ class Link:
         self._next_id = _next_id or (lambda: next(_default_id_counter))
 
     def get_uptime(self) -> int:
-        """Send GetUpdateRequest, return uptime_ms from the response."""
+        """Send GetUptimeRequest, return uptime_ms from the response."""
         rid = self._next_id()
-        req = _pb.Request()
-        req.request_id = rid
-        req.get_uptime.SetInParent()  # selects the empty oneof slot
-        write_frame(self._t, req.SerializeToString())
+        outgoing = _pb.Frame()
+        outgoing.request.request_id = rid
+        outgoing.request.get_uptime.SetInParent()
+        write_frame(self._t, outgoing.SerializeToString())
 
-        raw = read_frame(self._t)
-        if raw is None:
-            raise ProtocolError("transport closed before response arrived")
-
-        resp = _pb.Response()
-        resp.ParseFromString(raw)
-
-        if resp.request_id != rid:
-            raise ProtocolError(
-                f"request_id mismatch: sent {rid}, got {resp.request_id}"
-            )
-
+        resp = self._read_response(rid)
         which = resp.WhichOneof("payload")
         if which == "error":
             raise RemoteError(code=resp.error.code, message=resp.error.message)
         if which == "get_uptime":
             return resp.get_uptime.uptime_ms
         raise ProtocolError(f"unexpected response payload: {which!r}")
+
+    def _read_response(self, expected_rid: int) -> "_pb.Response":
+        """Read frames until a Response with matching request_id arrives.
+
+        Events encountered along the way are silently dropped (this method
+        is for synchronous request/response calls; see read_events() for
+        the async-event use case).
+        """
+        while True:
+            raw = read_frame(self._t)
+            if raw is None:
+                raise ProtocolError("transport closed before response arrived")
+            frame = _pb.Frame()
+            frame.ParseFromString(raw)
+            kind = frame.WhichOneof("kind")
+            if kind != "response":
+                # Drop Events (and any unexpected Requests) while waiting
+                # for our reply.
+                continue
+            resp = frame.response
+            if resp.request_id != expected_rid:
+                raise ProtocolError(
+                    f"request_id mismatch: sent {expected_rid}, "
+                    f"got {resp.request_id}"
+                )
+            return resp

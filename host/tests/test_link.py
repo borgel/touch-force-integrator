@@ -92,11 +92,11 @@ from touch_force_cli import touch_force_pb2 as pb
 
 
 def _encoded_response(*, request_id: int, uptime_ms: int) -> bytes:
-    """Helper: return wire bytes for a GetUptime response framed."""
-    resp = pb.Response()
-    resp.request_id = request_id
-    resp.get_uptime.uptime_ms = uptime_ms
-    return link.cobs_encode(resp.SerializeToString()) + b"\x00"
+    """Helper: return wire bytes for a GetUptime response, Frame-wrapped."""
+    frame = pb.Frame()
+    frame.response.request_id = request_id
+    frame.response.get_uptime.uptime_ms = uptime_ms
+    return link.cobs_encode(frame.SerializeToString()) + b"\x00"
 
 
 def test_link_get_uptime_round_trip() -> None:
@@ -108,15 +108,16 @@ def test_link_get_uptime_round_trip() -> None:
 
     assert uptime_ms == 12_345
 
-    # Verify the host sent a properly-framed Request with our
-    # request_id and the get_uptime payload set.
+    # Verify the host sent a Frame{request} with our request_id
+    # and the get_uptime payload set.
     sent = bytes(t.outgoing)
     assert sent.endswith(b"\x00")
     decoded = link.cobs_decode(sent[:-1])
-    req = pb.Request()
-    req.ParseFromString(decoded)
-    assert req.request_id == 42
-    assert req.WhichOneof("payload") == "get_uptime"
+    frame = pb.Frame()
+    frame.ParseFromString(decoded)
+    assert frame.WhichOneof("kind") == "request"
+    assert frame.request.request_id == 42
+    assert frame.request.WhichOneof("payload") == "get_uptime"
 
 
 def test_link_raises_on_request_id_mismatch() -> None:
@@ -129,11 +130,11 @@ def test_link_raises_on_request_id_mismatch() -> None:
 
 
 def test_link_propagates_error_response() -> None:
-    err = pb.Response()
-    err.request_id = 7
-    err.error.code = 1
-    err.error.message = "unknown command"
-    wire = link.cobs_encode(err.SerializeToString()) + b"\x00"
+    frame = pb.Frame()
+    frame.response.request_id = 7
+    frame.response.error.code = 1
+    frame.response.error.message = "unknown command"
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
     t = _LoopTransport(wire)
 
     lnk = link.Link(t, _next_id=lambda: 7)

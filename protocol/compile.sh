@@ -43,12 +43,28 @@ python3 "$NANOPB_GEN" --output-dir=generated/c touch_force.proto
 echo "==> protoc --python_out -> generated/python/"
 protoc --python_out=generated/python touch_force.proto
 
+# --- Guard: every variable-length field must be bounded -------------------
+# nanopb emits pb_callback_t for unbounded string/bytes/repeated fields.
+# That forces the caller to write encode/decode callbacks and breaks the
+# fixed-size struct invariant the firmware relies on. Fail loudly.
+#
+# pb_callback_t only appears in the .pb.h struct definition; the .pb.c
+# reaches callback fields through descriptor macros, so checking the
+# header alone is sufficient.
+if grep -q "pb_callback_t" generated/c/touch_force.pb.h; then
+  echo "error: generated header contains pb_callback_t" >&2
+  echo "       a variable-length field is missing a bound in touch_force.options" >&2
+  exit 1
+fi
+
 # --- Copy to committed locations -------------------------------------------
 
 copy() {
   local src=$1 dst=$2
   echo "    $src -> $dst"
-  install -m 0644 -D "$src" "$dst"
+  mkdir -p "$(dirname "$dst")"
+  cp "$src" "$dst"
+  chmod 0644 "$dst"
 }
 
 echo "==> copying artifacts to committed locations"
@@ -58,15 +74,5 @@ copy generated/c/touch_force.pb.c \
      ../TouchForceIntegrator/Appli/Src/proto/touch_force.pb.c
 copy generated/python/touch_force_pb2.py \
      ../host/touch_force_cli/touch_force_pb2.py
-
-# --- Guard: every variable-length field must be bounded -------------------
-# nanopb emits pb_callback_t for unbounded string/bytes/repeated fields.
-# That forces the caller to write encode/decode callbacks and breaks the
-# fixed-size struct invariant the firmware relies on. Fail loudly.
-if grep -q "pb_callback_t" ../TouchForceIntegrator/Appli/Inc/proto/touch_force.pb.h; then
-  echo "error: generated header contains pb_callback_t" >&2
-  echo "       a variable-length field is missing a bound in touch_force.options" >&2
-  exit 1
-fi
 
 echo "==> done"

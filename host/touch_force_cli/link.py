@@ -10,8 +10,10 @@ This module handles three concerns:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Optional, Protocol
+import itertools
+from typing import Callable, Optional, Protocol
+
+from touch_force_cli import touch_force_pb2 as _pb
 
 
 class FramingError(ValueError):
@@ -57,6 +59,8 @@ def cobs_encode(data: bytes) -> bytes:
 
 def cobs_decode(data: bytes) -> bytes:
     """COBS-decode ``data``. Raises ``FramingError`` on malformed input."""
+    if not data:
+        raise FramingError("empty COBS frame")
     if 0 in data:
         raise FramingError("COBS payload must not contain 0x00")
 
@@ -124,25 +128,18 @@ def read_frame(transport: _ByteTransport) -> Optional[bytes]:
 # Link: request/response correlation
 # ---------------------------------------------------------------------------
 
-import itertools
-from typing import Callable
-
-from touch_force_cli import touch_force_pb2 as _pb
-
 
 class ProtocolError(RuntimeError):
     """Raised when a wire frame violates the protocol contract."""
 
 
-@dataclass
 class RemoteError(RuntimeError):
     """Raised when the MCU returns ErrorResponse instead of the expected reply."""
 
-    code: int
-    message: str
-
-    def __str__(self) -> str:
-        return f"remote error code={self.code}: {self.message}"
+    def __init__(self, code: int, message: str) -> None:
+        super().__init__(f"remote error code={code}: {message}")
+        self.code = code
+        self.message = message
 
 
 _default_id_counter = itertools.count(1)

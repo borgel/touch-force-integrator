@@ -34,6 +34,11 @@ def test_cobs_round_trip(raw: bytes) -> None:
     assert link.cobs_decode(encoded) == raw
 
 
+def test_cobs_decode_rejects_empty_input() -> None:
+    with pytest.raises(link.FramingError, match="empty"):
+        link.cobs_decode(b"")
+
+
 def test_cobs_decode_rejects_zero_in_payload() -> None:
     # 0x00 inside the COBS payload is a framing error.
     with pytest.raises(link.FramingError):

@@ -24,21 +24,35 @@ _sym_db = _symbol_database.Default()
 
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11touch_force.proto\x12\rtouchforce.v1\"_\n\x07Request\x12\x12\n\nrequest_id\x18\x01 \x01(\r\x12\x35\n\nget_uptime\x18\x03 \x01(\x0b\x32\x1f.touchforce.v1.GetUptimeRequestH\x00\x42\t\n\x07payload\"\x90\x01\n\x08Response\x12\x12\n\nrequest_id\x18\x01 \x01(\r\x12-\n\x05\x65rror\x18\x02 \x01(\x0b\x32\x1c.touchforce.v1.ErrorResponseH\x00\x12\x36\n\nget_uptime\x18\x03 \x01(\x0b\x32 .touchforce.v1.GetUptimeResponseH\x00\x42\t\n\x07payload\".\n\rErrorResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\r\x12\x0f\n\x07message\x18\x02 \x01(\t\"\x12\n\x10GetUptimeRequest\"&\n\x11GetUptimeResponse\x12\x11\n\tuptime_ms\x18\x01 \x01(\rb\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x11touch_force.proto\x12\rtouchforce.v1\"\x8e\x01\n\x05\x46rame\x12)\n\x07request\x18\x01 \x01(\x0b\x32\x16.touchforce.v1.RequestH\x00\x12+\n\x08response\x18\x02 \x01(\x0b\x32\x17.touchforce.v1.ResponseH\x00\x12%\n\x05\x65vent\x18\x03 \x01(\x0b\x32\x14.touchforce.v1.EventH\x00\x42\x06\n\x04kind\"\xe4\x01\n\x07Request\x12\x12\n\nrequest_id\x18\x01 \x01(\r\x12\x35\n\nget_uptime\x18\x03 \x01(\x0b\x32\x1f.touchforce.v1.GetUptimeRequestH\x00\x12\x46\n\x13set_touch_streaming\x18\x04 \x01(\x0b\x32\'.touchforce.v1.SetTouchStreamingRequestH\x00\x12;\n\rget_telemetry\x18\x05 \x01(\x0b\x32\".touchforce.v1.GetTelemetryRequestH\x00\x42\t\n\x07payload\"\xce\x01\n\x08Response\x12\x12\n\nrequest_id\x18\x01 \x01(\r\x12-\n\x05\x65rror\x18\x02 \x01(\x0b\x32\x1c.touchforce.v1.ErrorResponseH\x00\x12\x36\n\nget_uptime\x18\x03 \x01(\x0b\x32 .touchforce.v1.GetUptimeResponseH\x00\x12<\n\rget_telemetry\x18\x05 \x01(\x0b\x32#.touchforce.v1.GetTelemetryResponseH\x00\x42\t\n\x07payload\"I\n\x05\x45vent\x12\x35\n\x0btouch_frame\x18\x01 \x01(\x0b\x32\x1e.touchforce.v1.TouchFrameEventH\x00\x42\t\n\x07payload\".\n\rErrorResponse\x12\x0c\n\x04\x63ode\x18\x01 \x01(\r\x12\x0f\n\x07message\x18\x02 \x01(\t\"\x12\n\x10GetUptimeRequest\"&\n\x11GetUptimeResponse\x12\x11\n\tuptime_ms\x18\x01 \x01(\r\"+\n\x18SetTouchStreamingRequest\x12\x0f\n\x07\x65nabled\x18\x01 \x01(\x08\"\x15\n\x13GetTelemetryRequest\"Q\n\x14GetTelemetryResponse\x12\x1d\n\x15streaming_events_sent\x18\x01 \x01(\r\x12\x1a\n\x12streaming_tx_fails\x18\x02 \x01(\r\"o\n\x0fTouchFrameEvent\x12\x14\n\x0clive_touches\x18\x01 \x01(\r\x12\x19\n\x11tips_touched_down\x18\x02 \x01(\r\x12+\n\x07\x66ingers\x18\x03 \x03(\x0b\x32\x1a.touchforce.v1.TouchFinger\"\x84\x01\n\x0bTouchFinger\x12\n\n\x02id\x18\x01 \x01(\r\x12\x10\n\x08touching\x18\x02 \x01(\x08\x12\t\n\x01x\x18\x03 \x01(\r\x12\t\n\x01y\x18\x04 \x01(\r\x12\x13\n\x0bpatch_width\x18\x05 \x01(\r\x12\x14\n\x0cpatch_height\x18\x06 \x01(\r\x12\x16\n\x0etouch_duration\x18\x07 \x01(\rb\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'touch_force_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_REQUEST']._serialized_start=36
-  _globals['_REQUEST']._serialized_end=131
-  _globals['_RESPONSE']._serialized_start=134
-  _globals['_RESPONSE']._serialized_end=278
-  _globals['_ERRORRESPONSE']._serialized_start=280
-  _globals['_ERRORRESPONSE']._serialized_end=326
-  _globals['_GETUPTIMEREQUEST']._serialized_start=328
-  _globals['_GETUPTIMEREQUEST']._serialized_end=346
-  _globals['_GETUPTIMERESPONSE']._serialized_start=348
-  _globals['_GETUPTIMERESPONSE']._serialized_end=386
+  _globals['_FRAME']._serialized_start=37
+  _globals['_FRAME']._serialized_end=179
+  _globals['_REQUEST']._serialized_start=182
+  _globals['_REQUEST']._serialized_end=410
+  _globals['_RESPONSE']._serialized_start=413
+  _globals['_RESPONSE']._serialized_end=619
+  _globals['_EVENT']._serialized_start=621
+  _globals['_EVENT']._serialized_end=694
+  _globals['_ERRORRESPONSE']._serialized_start=696
+  _globals['_ERRORRESPONSE']._serialized_end=742
+  _globals['_GETUPTIMEREQUEST']._serialized_start=744
+  _globals['_GETUPTIMEREQUEST']._serialized_end=762
+  _globals['_GETUPTIMERESPONSE']._serialized_start=764
+  _globals['_GETUPTIMERESPONSE']._serialized_end=802
+  _globals['_SETTOUCHSTREAMINGREQUEST']._serialized_start=804
+  _globals['_SETTOUCHSTREAMINGREQUEST']._serialized_end=847
+  _globals['_GETTELEMETRYREQUEST']._serialized_start=849
+  _globals['_GETTELEMETRYREQUEST']._serialized_end=870
+  _globals['_GETTELEMETRYRESPONSE']._serialized_start=872
+  _globals['_GETTELEMETRYRESPONSE']._serialized_end=953
+  _globals['_TOUCHFRAMEEVENT']._serialized_start=955
+  _globals['_TOUCHFRAMEEVENT']._serialized_end=1066
+  _globals['_TOUCHFINGER']._serialized_start=1069
+  _globals['_TOUCHFINGER']._serialized_end=1201
 # @@protoc_insertion_point(module_scope)

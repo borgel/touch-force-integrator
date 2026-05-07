@@ -2,31 +2,57 @@ syntax = "proto3";
 
 package touchforce.v1;
 
-// Top-level wrapper for every host -> MCU message.
-//
-// Conventions (locked in by 2026-05-06 design spec):
-//   - request_id: opaque uint32 chosen by the host, echoed by the MCU
-//     in Response.request_id. SHOULD be non-zero (proto3 elides
-//     zero defaults on the wire, so 0 is indistinguishable from
-//     "unset").
-//   - Field 2 in both Request and Response is reserved across the
-//     whole protocol for Response.error, so command oneof slots
-//     start at field 3 with parallel numbers across Request/Response.
-message Request {
-  uint32 request_id = 1;
-  // field 2 reserved for symmetry with Response.error
-  oneof payload {
-    GetUptimeRequest get_uptime = 3;
+// Top-level wrapper for every COBS frame on the wire, regardless
+// of direction. Receivers always pb_decode(Frame) first, then
+// switch on which_kind. Adding a new top-level kind in the future
+// (heartbeats, log lines, etc.) is one more oneof variant here.
+message Frame {
+  oneof kind {
+    Request  request  = 1;
+    Response response = 2;
+    Event    event    = 3;
   }
 }
 
-// Top-level wrapper for every MCU -> host message (in v1, only
-// solicited responses; future versions may add an Event sibling).
+// Host -> MCU command messages.
+//
+// Conventions (v2-relaxed from v1):
+//   - request_id: opaque uint32 chosen by the host, echoed by the
+//     MCU in Response.request_id when a Response is sent. SHOULD
+//     be non-zero (proto3 elides zero defaults on the wire). Some
+//     commands are fire-and-forget and produce no Response; for
+//     those the host doesn't track the id.
+//   - Field 2 in both Request and Response is reserved for
+//     Response.error. Command oneof slots start at field 3.
+//   - Parallel field numbers across Request and Response when
+//     both messages have the slot. Gaps in either oneof are
+//     acceptable for fire-and-forget commands.
+message Request {
+  uint32 request_id = 1;
+  // field 2 reserved for Response.error symmetry
+  oneof payload {
+    GetUptimeRequest         get_uptime          = 3;
+    SetTouchStreamingRequest set_touch_streaming = 4;
+    GetTelemetryRequest      get_telemetry       = 5;
+  }
+}
+
+// MCU -> host reply messages. Always carries the same request_id
+// the host sent.
 message Response {
   uint32 request_id = 1;
   oneof payload {
-    ErrorResponse     error      = 2;
-    GetUptimeResponse get_uptime = 3;
+    ErrorResponse        error         = 2;
+    GetUptimeResponse    get_uptime    = 3;
+    // 4: gap — set_touch_streaming is fire-and-forget
+    GetTelemetryResponse get_telemetry = 5;
+  }
+}
+
+// MCU -> host async messages. Not correlated to any Request.
+message Event {
+  oneof payload {
+    TouchFrameEvent touch_frame = 1;
   }
 }
 
@@ -36,9 +62,62 @@ message ErrorResponse {
 }
 
 message GetUptimeRequest  {}
-
 message GetUptimeResponse {
   // Milliseconds since MCU boot (HAL_GetTick wraps at ~49.7 days,
   // documented in protocol/README.md).
   uint32 uptime_ms = 1;
+}
+
+// Turn touch-frame streaming on or off. Default at boot is on.
+// Fire-and-forget: no response is sent. Reliability comes from
+// USB CDC; the host observes the side effect (events stop or
+// resume) to confirm.
+message SetTouchStreamingRequest {
+  bool enabled = 1;
+}
+// no SetTouchStreamingResponse
+
+message GetTelemetryRequest  {}
+message GetTelemetryResponse {
+  // Total TouchFrameEvents successfully written to USB CDC since
+  // boot. Wraps after ~2 years at 60 Hz.
+  uint32 streaming_events_sent = 1;
+  // Total CDC_Write returns != USBD_OK during streaming. Both
+  // USBD_BUSY (timeout) and USBD_FAIL (lower-layer error) bump
+  // this counter.
+  uint32 streaming_tx_fails = 2;
+}
+
+// One async event per published touch frame from the wisecoco
+// USB host. Atomic snapshot of all live fingers at one instant.
+message TouchFrameEvent {
+  // How many fingers were reported in any state this frame
+  // (0..MAX_TOUCHES). Determines how many entries in fingers
+  // are meaningful.
+  uint32 live_touches = 1;
+  // How many fingers were actively touching down this frame.
+  uint32 tips_touched_down = 2;
+  // One entry per live finger, in [0, live_touches).
+  repeated TouchFinger fingers = 3;
+}
+
+message TouchFinger {
+  // Arbitrary id, stays constant to track this finger DURING a
+  // single touch.
+  uint32 id = 1;
+  // True while this finger is touching. Goes false on the last
+  // frame for a given finger (the up event) before the entry
+  // disappears.
+  bool touching = 2;
+  // Coordinates in pixels, post-rotation (firmware sets rotation
+  // via USBH_HID_WisecocoSetRotation; ROTATE_90 is the current
+  // setting and yields x in [0, 2880], y in [0, 2160]).
+  uint32 x = 3;
+  uint32 y = 4;
+  // Contact patch in pixels, post-rotation. Patch dimensions
+  // swap with the axes for ROTATE_90 / ROTATE_270.
+  uint32 patch_width  = 5;
+  uint32 patch_height = 6;
+  // Microseconds since this touch started (id was first seen).
+  uint32 touch_duration = 7;
 }

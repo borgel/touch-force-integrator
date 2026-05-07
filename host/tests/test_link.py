@@ -92,11 +92,11 @@ from touch_force_cli import touch_force_pb2 as pb
 
 
 def _encoded_response(*, request_id: int, uptime_ms: int) -> bytes:
-    """Helper: return wire bytes for a GetUptime response framed."""
-    resp = pb.Response()
-    resp.request_id = request_id
-    resp.get_uptime.uptime_ms = uptime_ms
-    return link.cobs_encode(resp.SerializeToString()) + b"\x00"
+    """Helper: return wire bytes for a GetUptime response, Frame-wrapped."""
+    frame = pb.Frame()
+    frame.response.request_id = request_id
+    frame.response.get_uptime.uptime_ms = uptime_ms
+    return link.cobs_encode(frame.SerializeToString()) + b"\x00"
 
 
 def test_link_get_uptime_round_trip() -> None:
@@ -108,15 +108,16 @@ def test_link_get_uptime_round_trip() -> None:
 
     assert uptime_ms == 12_345
 
-    # Verify the host sent a properly-framed Request with our
-    # request_id and the get_uptime payload set.
+    # Verify the host sent a Frame{request} with our request_id
+    # and the get_uptime payload set.
     sent = bytes(t.outgoing)
     assert sent.endswith(b"\x00")
     decoded = link.cobs_decode(sent[:-1])
-    req = pb.Request()
-    req.ParseFromString(decoded)
-    assert req.request_id == 42
-    assert req.WhichOneof("payload") == "get_uptime"
+    frame = pb.Frame()
+    frame.ParseFromString(decoded)
+    assert frame.WhichOneof("kind") == "request"
+    assert frame.request.request_id == 42
+    assert frame.request.WhichOneof("payload") == "get_uptime"
 
 
 def test_link_raises_on_request_id_mismatch() -> None:
@@ -129,11 +130,11 @@ def test_link_raises_on_request_id_mismatch() -> None:
 
 
 def test_link_propagates_error_response() -> None:
-    err = pb.Response()
-    err.request_id = 7
-    err.error.code = 1
-    err.error.message = "unknown command"
-    wire = link.cobs_encode(err.SerializeToString()) + b"\x00"
+    frame = pb.Frame()
+    frame.response.request_id = 7
+    frame.response.error.code = 1
+    frame.response.error.message = "unknown command"
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
     t = _LoopTransport(wire)
 
     lnk = link.Link(t, _next_id=lambda: 7)
@@ -142,3 +143,121 @@ def test_link_propagates_error_response() -> None:
         lnk.get_uptime()
     assert exc_info.value.code == 1
     assert "unknown command" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Link.set_touch_streaming (fire-and-forget)
+# ---------------------------------------------------------------------------
+
+def test_link_set_touch_streaming_enabled_writes_frame() -> None:
+    t = _LoopTransport()  # no incoming bytes; method must NOT read.
+    lnk = link.Link(t, _next_id=lambda: 99)
+
+    lnk.set_touch_streaming(enabled=True)
+
+    sent = bytes(t.outgoing)
+    assert sent.endswith(b"\x00")
+    decoded = link.cobs_decode(sent[:-1])
+    frame = pb.Frame()
+    frame.ParseFromString(decoded)
+    assert frame.WhichOneof("kind") == "request"
+    assert frame.request.request_id == 99
+    assert frame.request.WhichOneof("payload") == "set_touch_streaming"
+    assert frame.request.set_touch_streaming.enabled is True
+
+
+def test_link_set_touch_streaming_disabled_writes_frame() -> None:
+    t = _LoopTransport()
+    lnk = link.Link(t, _next_id=lambda: 100)
+
+    lnk.set_touch_streaming(enabled=False)
+
+    sent = bytes(t.outgoing)
+    decoded = link.cobs_decode(sent[:-1])
+    frame = pb.Frame()
+    frame.ParseFromString(decoded)
+    # proto3 elides default-false on the wire — that's fine; the field
+    # just isn't present, but WhichOneof still resolves to the oneof slot
+    # because the inner message was set via SetInParent().
+    assert frame.request.WhichOneof("payload") == "set_touch_streaming"
+    assert frame.request.set_touch_streaming.enabled is False
+
+
+# ---------------------------------------------------------------------------
+# Link.get_telemetry
+# ---------------------------------------------------------------------------
+
+def test_link_get_telemetry_round_trip() -> None:
+    frame = pb.Frame()
+    frame.response.request_id = 5
+    frame.response.get_telemetry.streaming_events_sent = 12345
+    frame.response.get_telemetry.streaming_tx_fails = 7
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+    t = _LoopTransport(wire)
+    lnk = link.Link(t, _next_id=lambda: 5)
+
+    sent, fails = lnk.get_telemetry()
+
+    assert sent == 12345
+    assert fails == 7
+
+    # Verify the host sent a properly-framed GetTelemetryRequest.
+    sent_bytes = bytes(t.outgoing)
+    decoded = link.cobs_decode(sent_bytes[:-1])
+    out_frame = pb.Frame()
+    out_frame.ParseFromString(decoded)
+    assert out_frame.WhichOneof("kind") == "request"
+    assert out_frame.request.WhichOneof("payload") == "get_telemetry"
+
+
+# ---------------------------------------------------------------------------
+# Link.read_events generator
+# ---------------------------------------------------------------------------
+
+def _encoded_event_touch_frame(*, live: int, down: int,
+                                fingers: list[tuple[int, bool, int, int]]) -> bytes:
+    """Build wire bytes for a Frame{event: TouchFrameEvent{...}}."""
+    frame = pb.Frame()
+    frame.event.touch_frame.live_touches = live
+    frame.event.touch_frame.tips_touched_down = down
+    for fid, touching, x, y in fingers:
+        f = frame.event.touch_frame.fingers.add()
+        f.id = fid
+        f.touching = touching
+        f.x = x
+        f.y = y
+    return link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+
+def test_link_read_events_yields_events_and_skips_responses() -> None:
+    # Mix: one event, one stale response, one event.
+    e1 = _encoded_event_touch_frame(
+        live=1, down=1, fingers=[(0, True, 100, 200)]
+    )
+    e2 = _encoded_event_touch_frame(
+        live=2, down=2, fingers=[(0, True, 100, 200), (1, True, 300, 400)]
+    )
+    stale_resp = _encoded_response(request_id=999, uptime_ms=42)
+
+    t = _LoopTransport(e1 + stale_resp + e2)
+    lnk = link.Link(t)
+
+    events = []
+    for event in lnk.read_events():
+        events.append(event)
+        if len(events) == 2:
+            break
+
+    assert len(events) == 2
+    assert events[0].WhichOneof("payload") == "touch_frame"
+    assert events[0].touch_frame.live_touches == 1
+    assert events[1].touch_frame.live_touches == 2
+
+
+def test_link_read_events_returns_at_eof() -> None:
+    # Empty transport: generator should terminate cleanly.
+    t = _LoopTransport(b"")
+    lnk = link.Link(t)
+    events = list(lnk.read_events())
+    assert events == []

@@ -1,132 +1,78 @@
 # touchforce.v1 Serial Protocol
 
-A protobuf-based request/response protocol over USB CDC, between the
-TouchForceIntegrator firmware (MCU) and a host.
+Protobuf request/response/event protocol over USB CDC between the
+TouchForceIntegrator firmware and a host.
 
 ## Wire format
 
-Each frame on the wire is:
+    [ COBS-encoded( serialized Frame protobuf ) ] [ 0x00 ]
 
-    [ COBS-encoded( protobuf bytes ) ] [ 0x00 ]
+Every frame on the wire is a `Frame` message (defined in
+`touch_force.proto`) carrying exactly one of `request`, `response`, or
+`event`. COBS guarantees no `0x00` inside the encoded payload; a single
+`0x00` separates frames; receivers resync to the next `0x00` after any
+corruption or MCU reset.
 
-- COBS ([Consistent Overhead Byte Stuffing](https://en.wikipedia.org/wiki/Consistent_Overhead_Byte_Stuffing)) ensures the encoded bytes contain no `0x00`.
-- A single `0x00` byte separates frames.
-- Receivers resync after corruption or MCU reset by reading until the
-  next `0x00`.
+## Schema
 
-## Schema overview
+See `touch_force.proto`. Top-level messages:
 
-Defined in `touch_force.proto`. Two top-level messages:
-
-- `Request` — sent host -> MCU. Carries a `request_id` plus a
-  `oneof payload` selecting one of the commands.
-- `Response` — sent MCU -> host. Carries the same `request_id` and a
-  `oneof payload` selecting the matching command's response or an
-  `ErrorResponse`.
+- `Frame { oneof kind { Request, Response, Event } }` — every wire frame.
+- `Request` — host → MCU. Carries `request_id` + a payload oneof.
+- `Response` — MCU → host. Carries the same `request_id` + a payload oneof.
+- `Event` — MCU → host async, no correlation.
 
 ### Conventions
 
-- **`request_id`** — opaque 32-bit value chosen by the host. The MCU
-  echoes it verbatim. Hosts SHOULD use non-zero IDs because proto3
-  elides zero defaults on the wire, so 0 is indistinguishable from
-  "unset". The reference CLI uses a monotonic counter starting at 1.
-- **Field 2 in both `Request` and `Response`** is reserved across the
-  protocol for `Response.error`. Command oneof slots therefore start
-  at field 3 and use parallel numbers in `Request` and `Response`.
-  Note: proto3 forbids `reserved` statements inside a `oneof` block,
-  so the field-2 gap in `Request.payload` is enforced by convention
-  and a comment, not by the language. Don't try to add `reserved 2;`
-  inside the oneof — protoc will reject it.
-- **Empty messages are still defined** (e.g. `GetUptimeRequest {}`)
-  rather than collapsed into a tag, so future versions can add
-  fields without a wire-format break.
-- **Package is `touchforce.v1`.** A future `v2` namespace can coexist
-  if a hard break is ever needed; the ordinary path is additive.
+- `request_id` is opaque, host-chosen, 32-bit. The MCU echoes it on Responses. Hosts SHOULD use non-zero IDs (proto3 elides zero defaults). Fire-and-forget commands have no Response so the id isn't used by the host.
+- Field 2 in `Request.payload` and `Response.payload` is reserved for `Response.error`. Command oneof slots start at field 3 with parallel numbering when both directions have the slot. Gaps (a Request slot with no Response peer) are acceptable for fire-and-forget.
+- proto3 forbids `reserved` inside `oneof`, so the gap at field 2 in `Request.payload` is convention only — don't try to add `reserved 2;` there.
+- Empty messages (`GetUptimeRequest {}`) stay defined rather than collapsed; future fields are additive.
+- Package is `touchforce.v1`. Additive evolution stays here; a real wire break would bump to `v2`.
 
-## Command catalog (v1)
+## Command catalog
 
-### GetUptime
+| Command            | Direction       | Field # | Notes                                                                |
+|--------------------|-----------------|---------|----------------------------------------------------------------------|
+| `GetUptime`        | Request → Response | 3    | empty Request; Response carries `uint32 uptime_ms`                   |
+| `SetTouchStreaming`| Request only       | 4    | fire-and-forget; bool `enabled`. Default at boot is true.            |
+| `GetTelemetry`     | Request → Response | 5    | empty Request; Response carries `streaming_events_sent` + `streaming_tx_fails` |
+| `TouchFrame`       | Event              | 1    | streamed per wisecoco frame when streaming enabled (see §Events)     |
 
-Returns the MCU's uptime in milliseconds since boot.
+`Response.payload` always carries one of the command-specific responses or `ErrorResponse` (field 2, `code` + `message`). Defined error codes:
 
-| Direction   | Field             | Wire field # | Notes                                       |
-|-------------|-------------------|--------------|---------------------------------------------|
-| Request     | `get_uptime`      | 3            | empty `GetUptimeRequest`                    |
-| Response    | `get_uptime`      | 3            | `uint32 uptime_ms`                          |
-| Response    | `error`           | 2            | only on dispatch failure; see below         |
+- `1` — unknown command (Request payload tag the MCU doesn't recognize, or empty oneof).
 
-Note: `uptime_ms` is `HAL_GetTick()` cast to `uint32_t`. It wraps at
-~49.7 days. Hosts that need to reason about "is this a fresh boot?"
-should not assume monotonicity across that boundary.
+## Events
 
-## ErrorResponse
+`TouchFrameEvent` mirrors `USBH_LatestWisecocoData`:
 
-Every command can fail with an `ErrorResponse` instead of its
-command-specific response. The `request_id` is still echoed, so host
-correlation is unaffected.
+- `live_touches` — count of fingers reported in any state this frame.
+- `tips_touched_down` — count actively touching this frame.
+- `repeated TouchFinger fingers` — bounded at 10 entries (`max_count:10`).
 
-| Field   | Type     | Notes                                              |
-|---------|----------|----------------------------------------------------|
-| `code`  | `uint32` | reserved code 0 = unspecified                      |
-| `message` | `string` | human-readable, bounded at 64 bytes (nanopb)     |
+`TouchFinger`:
 
-Currently defined codes:
-- `1` — unknown command (host sent a `Request.payload` tag the MCU
-  doesn't recognize, e.g. host running a newer protocol version, or
-  a Request with no payload set).
+- `id` — stable per-touch identifier (uint32).
+- `touching` — true while down; goes false on the up frame, then the entry disappears.
+- `x`, `y` — pixels, post-rotation. Firmware default rotation is `USBH_WC_ROTATE_90`, so x ∈ [0, 2880], y ∈ [0, 2160]. Patch dimensions swap with axes for ROTATE_90/270.
+- `patch_width`, `patch_height` — contact-patch size in pixels.
+- `touch_duration` — microseconds since this id was first seen.
 
-## nanopb-specific caveats for host implementors
+Streaming default-on. Drop-on-busy: if the firmware's CDC TX is full when an event needs to send (5ms timeout), the event is dropped silently and `streaming_tx_fails` increments. Render path is never blocked by a slow host.
 
-- `ErrorResponse.message` is **bounded at 64 bytes** on the MCU
-  side (`touch_force.options`). The MCU will silently truncate
-  longer strings; full-protobuf hosts that send arbitrary lengths
-  will succeed at encode time but the string they receive back as
-  an echo (if one ever exists) would be truncated.
-- Future `bytes` or `string` fields will need similar bounds. When
-  adding them to `touch_force.proto`, also add a corresponding
-  `<package>.<MessageName>.<field> max_size:N` line to
-  `touch_force.options`. The fully-qualified package prefix
-  (`touchforce.v1.`) is required because the nanopb generator runs
-  in protoc plugin mode, which delivers field descriptors with
-  their package prefix attached.
-- `compile.sh` enforces this: a missing bound makes nanopb emit
-  `pb_callback_t` for the field, and a guard in the script fails
-  the build before any artifacts get copied into the firmware tree.
+## nanopb caveats for host implementors
 
-## Worked example: GetUptime exchange
-
-Host sends:
-
-    Request { request_id: 1, get_uptime: GetUptimeRequest{} }
-    serialized:  08 01 1A 00            # 4 bytes (or close)
-    COBS-encoded: <varies — encoder output>
-    on wire: <COBS bytes> 00
-
-MCU replies:
-
-    Response { request_id: 1, get_uptime: GetUptimeResponse{ uptime_ms: 12345 } }
-    serialized:  08 01 1A 04 08 B9 60   # depends on uptime
-    COBS-encoded: <varies>
-    on wire: <COBS bytes> 00
-
-The reference Python CLI (`uv run python -m touch_force_cli
-get-uptime --port <dev>`, run from `host/`) is the canonical
-worked example.
+- `ErrorResponse.message` is bounded at 64 bytes (`touch_force.options`). Longer host-side messages are silently truncated by nanopb's decoder if they ever round-trip.
+- `TouchFrameEvent.fingers` is bounded at 10 entries. Future variable-length fields need similar bounds in `.options` — the package-qualified form (`touchforce.v1.MessageName.field max_size:N`) is required because nanopb runs as a protoc plugin.
+- `compile.sh` enforces this: a missing bound makes nanopb emit `pb_callback_t` and the script fails before copying artifacts into the firmware tree.
 
 ## Adding a new command
 
-1. Define `XxxRequest` and `XxxResponse` messages in
-   `touch_force.proto`.
-2. Add an entry to the `Request.payload` and `Response.payload`
-   oneofs at the same field number (>= 3, never reusing a number).
-3. Add any `max_size`/`max_count` constraints to
-   `touch_force.options`, fully qualified with the
-   `touchforce.v1.` package prefix.
-4. Run `./protocol/compile.sh` from the repo root.
-5. On the MCU side, add a `case` to the switch in
-   `Appli/Src/protocol_task.c::handle_frame` and a fill helper
-   (mirroring `fill_get_uptime_response`).
-6. On the host side, add a method to `Link` in
-   `host/touch_force_cli/link.py`, plus a CLI subcommand if
-   appropriate.
-7. Update this document's command catalog.
+1. Define `XxxRequest` (and `XxxResponse` if not fire-and-forget) in `touch_force.proto`.
+2. Add to `Request.payload` (and `Response.payload` if applicable) at the next free field number.
+3. Add any `max_size`/`max_count` constraints to `touch_force.options`, fully qualified.
+4. Run `./protocol/compile.sh`.
+5. Firmware: add a case to the dispatch in `Appli/Src/protocol_task.c::handle_frame`. For fire-and-forget commands, return without calling `send_response`.
+6. Host: add a `Link` method in `host/touch_force_cli/link.py` (with TDD tests in `host/tests/test_link.py`), plus a CLI subcommand in `cli.py` and/or a webapp button in `host/touch_force_webapp/index.html` if appropriate.
+7. Update this catalog.

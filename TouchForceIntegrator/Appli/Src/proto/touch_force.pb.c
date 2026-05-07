@@ -6,10 +6,16 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
+PB_BIND(touchforce_v1_Frame, touchforce_v1_Frame, 2)
+
+
 PB_BIND(touchforce_v1_Request, touchforce_v1_Request, AUTO)
 
 
 PB_BIND(touchforce_v1_Response, touchforce_v1_Response, AUTO)
+
+
+PB_BIND(touchforce_v1_Event, touchforce_v1_Event, 2)
 
 
 PB_BIND(touchforce_v1_ErrorResponse, touchforce_v1_ErrorResponse, AUTO)
@@ -19,6 +25,21 @@ PB_BIND(touchforce_v1_GetUptimeRequest, touchforce_v1_GetUptimeRequest, AUTO)
 
 
 PB_BIND(touchforce_v1_GetUptimeResponse, touchforce_v1_GetUptimeResponse, AUTO)
+
+
+PB_BIND(touchforce_v1_SetTouchStreamingRequest, touchforce_v1_SetTouchStreamingRequest, AUTO)
+
+
+PB_BIND(touchforce_v1_GetTelemetryRequest, touchforce_v1_GetTelemetryRequest, AUTO)
+
+
+PB_BIND(touchforce_v1_GetTelemetryResponse, touchforce_v1_GetTelemetryResponse, AUTO)
+
+
+PB_BIND(touchforce_v1_TouchFrameEvent, touchforce_v1_TouchFrameEvent, 2)
+
+
+PB_BIND(touchforce_v1_TouchFinger, touchforce_v1_TouchFinger, AUTO)
 
 
 

@@ -158,28 +158,96 @@ class Link:
         self._next_id = _next_id or (lambda: next(_default_id_counter))
 
     def get_uptime(self) -> int:
-        """Send GetUpdateRequest, return uptime_ms from the response."""
+        """Send GetUptimeRequest, return uptime_ms from the response."""
         rid = self._next_id()
-        req = _pb.Request()
-        req.request_id = rid
-        req.get_uptime.SetInParent()  # selects the empty oneof slot
-        write_frame(self._t, req.SerializeToString())
+        outgoing = _pb.Frame()
+        outgoing.request.request_id = rid
+        outgoing.request.get_uptime.SetInParent()
+        write_frame(self._t, outgoing.SerializeToString())
 
-        raw = read_frame(self._t)
-        if raw is None:
-            raise ProtocolError("transport closed before response arrived")
-
-        resp = _pb.Response()
-        resp.ParseFromString(raw)
-
-        if resp.request_id != rid:
-            raise ProtocolError(
-                f"request_id mismatch: sent {rid}, got {resp.request_id}"
-            )
-
+        resp = self._read_response(rid)
         which = resp.WhichOneof("payload")
         if which == "error":
             raise RemoteError(code=resp.error.code, message=resp.error.message)
         if which == "get_uptime":
             return resp.get_uptime.uptime_ms
         raise ProtocolError(f"unexpected response payload: {which!r}")
+
+    def _read_response(self, expected_rid: int) -> "_pb.Response":
+        """Read frames until a Response with matching request_id arrives.
+
+        Events encountered along the way are silently dropped (this method
+        is for synchronous request/response calls; see read_events() for
+        the async-event use case).
+        """
+        while True:
+            raw = read_frame(self._t)
+            if raw is None:
+                raise ProtocolError("transport closed before response arrived")
+            frame = _pb.Frame()
+            frame.ParseFromString(raw)
+            kind = frame.WhichOneof("kind")
+            if kind != "response":
+                # Drop Events (and any unexpected Requests) while waiting
+                # for our reply.
+                continue
+            resp = frame.response
+            if resp.request_id != expected_rid:
+                raise ProtocolError(
+                    f"request_id mismatch: sent {expected_rid}, "
+                    f"got {resp.request_id}"
+                )
+            return resp
+
+    def set_touch_streaming(self, *, enabled: bool) -> None:
+        """Enable or disable touch streaming on the MCU. Fire-and-forget.
+
+        No Response is sent by the firmware; this method writes the Frame
+        and returns. Reliability comes from USB CDC; the host confirms
+        the change took effect by observing the event stream (events stop
+        when enabled=False).
+        """
+        rid = self._next_id()
+        outgoing = _pb.Frame()
+        outgoing.request.request_id = rid
+        outgoing.request.set_touch_streaming.enabled = enabled
+        write_frame(self._t, outgoing.SerializeToString())
+
+    def get_telemetry(self) -> tuple[int, int]:
+        """Send GetTelemetryRequest, return (events_sent, tx_fails)."""
+        rid = self._next_id()
+        outgoing = _pb.Frame()
+        outgoing.request.request_id = rid
+        outgoing.request.get_telemetry.SetInParent()
+        write_frame(self._t, outgoing.SerializeToString())
+
+        resp = self._read_response(rid)
+        which = resp.WhichOneof("payload")
+        if which == "error":
+            raise RemoteError(code=resp.error.code, message=resp.error.message)
+        if which == "get_telemetry":
+            return (
+                resp.get_telemetry.streaming_events_sent,
+                resp.get_telemetry.streaming_tx_fails,
+            )
+        raise ProtocolError(f"unexpected response payload: {which!r}")
+
+    def read_events(self):
+        """Generator yielding Event messages forever (or until EOF).
+
+        Responses encountered with no pending request are discarded —
+        the CLI use case for `read_events` is one-directional event
+        consumption (`stream-touches` subcommand). For interleaved
+        request/response + event handling, the webapp uses a
+        request_id-keyed pending-promise map instead.
+        """
+        while True:
+            raw = read_frame(self._t)
+            if raw is None:
+                return
+            frame = _pb.Frame()
+            frame.ParseFromString(raw)
+            kind = frame.WhichOneof("kind")
+            if kind == "event":
+                yield frame.event
+            # else: discard (Response with no pending request, or unexpected)

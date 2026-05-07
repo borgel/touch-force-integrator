@@ -86,22 +86,38 @@ size_t __write(int file, unsigned char const *ptr, size_t len);
 static StaticSemaphore_t s_vblankSemMeta;
 static SemaphoreHandle_t s_vblankSem;
 
-/* touchforce.v1 streaming state. Read by _Touch_Task, written by
- * _CDC_Task via Touch_SetStreaming(). volatile bool is atomic on
- * Cortex-M for single-byte loads/stores; no mutex needed. */
-static volatile bool     s_streaming_enabled    = true;
-static volatile uint32_t s_streamingEventsSent  = 0;
-static volatile uint32_t s_streamingTxFails     = 0;
-
-/* TX buffers for Touch_StreamFrame. Sized from the generated
- * touchforce_v1_Frame_size constant (worst-case encoded Frame
- * carrying a TouchFrameEvent with 10 fingers, currently 418
- * bytes) plus COBS overhead and the 0x00 delimiter. 512 covers
+/* All touchforce.v1 streaming state in one place. Individual
+ * fields keep their volatile qualifiers; the struct itself is
+ * static.
+ *
+ * Concurrency:
+ *   - .enabled       — written by _CDC_Task via Touch_SetStreaming,
+ *                      read by _Touch_Task. Single-byte volatile
+ *                      access is atomic on Cortex-M.
+ *   - .events_sent / .tx_fails — written by _Touch_Task in
+ *                      Touch_StreamFrame, read by _CDC_Task via
+ *                      Touch_GetTelemetry. Reads may be torn for a
+ *                      few microseconds; harmless for monotonic
+ *                      counters.
+ *   - .event_buf / .event_tx_buf — only touched by _Touch_Task
+ *                      inside Touch_StreamFrame, no contention.
+ *
+ * Buffer sizes are derived from touchforce_v1_Frame_size (worst-case
+ * encoded Frame carrying a TouchFrameEvent with 10 fingers, currently
+ * 418 bytes) plus COBS overhead and the 0x00 delimiter. 512 covers
  * the worst case with margin. */
 #define PROTO_EVENT_BUF_BYTES   512U
 #define PROTO_EVENT_TX_BYTES    512U
-static uint8_t s_eventBuf[PROTO_EVENT_BUF_BYTES];
-static uint8_t s_eventTxBuf[PROTO_EVENT_TX_BYTES];
+
+static struct {
+  volatile bool     enabled;
+  volatile uint32_t events_sent;
+  volatile uint32_t tx_fails;
+  uint8_t           event_buf[PROTO_EVENT_BUF_BYTES];
+  uint8_t           event_tx_buf[PROTO_EVENT_TX_BYTES];
+} s_streaming = {
+  .enabled = true,
+};
 
 void HAL_LTDC_LineEventCallback(LTDC_HandleTypeDef *hltdc)
 {
@@ -379,7 +395,7 @@ static void Touch_RenderToLCD(const struct USBH_LatestWisecocoData *snapshot)
 }
 
 /* Build a Frame{Event{TouchFrameEvent}} from snap, encode it via
- * nanopb into s_eventBuf, COBS-encode that into s_eventTxBuf with
+ * nanopb into s_streaming.event_buf, COBS-encode that into s_streaming.event_tx_buf with
  * a trailing 0x00, and CDC_Write it with a 5ms timeout. Drops on
  * any non-OK status (host slow / disconnected / encode bug) and
  * bumps the corresponding counter so GetTelemetry can report it. */
@@ -412,30 +428,30 @@ static void Touch_StreamFrame(const struct USBH_LatestWisecocoData *snap)
     tf->touch_duration = (uint32_t)f->touchDuration;
   }
 
-  pb_ostream_t os = pb_ostream_from_buffer(s_eventBuf, sizeof(s_eventBuf));
+  pb_ostream_t os = pb_ostream_from_buffer(s_streaming.event_buf, sizeof(s_streaming.event_buf));
   if (!pb_encode(&os, touchforce_v1_Frame_fields, &frame)) {
     /* Encoder hit a logic bug or insufficient buffer. The buffer
      * is sized from Frame_size + slack, so this should be a hard
      * sizing-bug signal — count it and drop. */
-    s_streamingTxFails++;
+    s_streaming.tx_fails++;
     return;
   }
 
-  cobs_encode_result enc = cobs_encode(s_eventTxBuf, sizeof(s_eventTxBuf) - 1U,
-                                        s_eventBuf, os.bytes_written);
+  cobs_encode_result enc = cobs_encode(s_streaming.event_tx_buf, sizeof(s_streaming.event_tx_buf) - 1U,
+                                        s_streaming.event_buf, os.bytes_written);
   if (enc.status != COBS_ENCODE_OK) {
-    s_streamingTxFails++;
+    s_streaming.tx_fails++;
     return;
   }
-  s_eventTxBuf[enc.out_len] = 0x00U;
+  s_streaming.event_tx_buf[enc.out_len] = 0x00U;
 
-  uint8_t result = CDC_Write(s_eventTxBuf,
+  uint8_t result = CDC_Write(s_streaming.event_tx_buf,
                              (uint16_t)(enc.out_len + 1U),
                              5U);  /* non-blocking-ish: drop on busy */
   if (result == USBD_OK) {
-    s_streamingEventsSent++;
+    s_streaming.events_sent++;
   } else {
-    s_streamingTxFails++;
+    s_streaming.tx_fails++;
   }
 }
 
@@ -518,7 +534,7 @@ void _Touch_Task(void *argument)
       continue;
     }
     Touch_RenderToLCD(&snapshot);
-    if (s_streaming_enabled) {
+    if (s_streaming.enabled) {
       Touch_StreamFrame(&snapshot);
     }
   }
@@ -557,7 +573,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
  * for SetTouchStreaming. Single byte write, atomic on Cortex-M. */
 void Touch_SetStreaming(bool enabled)
 {
-  s_streaming_enabled = enabled;
+  s_streaming.enabled = enabled;
 }
 
 /* Read the streaming telemetry counters. Called from protocol_task.c
@@ -567,8 +583,8 @@ void Touch_SetStreaming(bool enabled)
  * for monotonic counters. */
 void Touch_GetTelemetry(uint32_t *sent, uint32_t *fails)
 {
-  *sent  = s_streamingEventsSent;
-  *fails = s_streamingTxFails;
+  *sent  = s_streaming.events_sent;
+  *fails = s_streaming.tx_fails;
 }
 
 void Error_Handler(void)

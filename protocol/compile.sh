@@ -18,14 +18,22 @@ if ! command -v protoc >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "error: python3 not on PATH" >&2
+if ! command -v uv >/dev/null 2>&1; then
+  echo "error: uv not on PATH (install via 'brew install uv' on macOS, or" >&2
+  echo "       see https://docs.astral.sh/uv/getting-started/installation/)" >&2
   exit 1
 fi
 
 NANOPB_GEN="../TouchForceIntegrator/Middlewares/nanopb/generator/nanopb_generator.py"
 if [[ ! -f "$NANOPB_GEN" ]]; then
   echo "error: nanopb generator not found at $NANOPB_GEN" >&2
+  echo "       run: git submodule update --init --recursive" >&2
+  exit 1
+fi
+
+NANOPB_PROTOC="$(dirname "$NANOPB_GEN")/protoc"
+if [[ ! -f "$NANOPB_PROTOC" ]]; then
+  echo "error: nanopb protoc wrapper not found at $NANOPB_PROTOC" >&2
   echo "       run: git submodule update --init --recursive" >&2
   exit 1
 fi
@@ -37,10 +45,8 @@ mkdir -p generated/c generated/python
 
 # --- Generate ---------------------------------------------------------------
 
-NANOPB_PROTOC="$(dirname "$NANOPB_GEN")/protoc"
-
 echo "==> nanopb generator -> generated/c/"
-python3 "$NANOPB_PROTOC" --proto_path=. --nanopb_out=generated/c touch_force.proto
+uv run --with protobuf --no-project --quiet python3 "$NANOPB_PROTOC" --proto_path=. --nanopb_out=generated/c touch_force.proto
 
 echo "==> protoc --python_out -> generated/python/"
 protoc --python_out=generated/python touch_force.proto

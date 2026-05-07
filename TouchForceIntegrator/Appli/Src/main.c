@@ -10,6 +10,7 @@
 #include "stm32h7s78_discovery.h"
 #include "stm32h7s78_discovery_lcd.h"
 #include "usbh_hid_wisecoco.h"
+#include "protocol_task.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -414,6 +415,9 @@ void _Render_Task(void *argument)
 /* Echo example for the USB CDC virtual COM port. Waits for the host
  * to enumerate the device, sends a greeting, then echoes any text
  * the host sends back as "echo: <text>\r\n". */
+/* Drives the touchforce.v1 serial protocol over USB CDC. Runs the
+ * COBS frame accumulator + nanopb dispatcher forever after the host
+ * has enumerated the device. */
 void _CDC_Task(void *argument)
 {
   (void)argument;
@@ -429,31 +433,7 @@ void _CDC_Task(void *argument)
     osDelay(100);
   }
 
-  static const char greeting[] = "[CDC ready - type something]\r\n";
-  (void)CDC_Write((const uint8_t *)greeting, sizeof(greeting) - 1U, 100U);
-
-  uint8_t  rxBuf[64];
-  char     txBuf[80];
-
-  for (;;)
-  {
-    size_t n = CDC_Read(rxBuf, sizeof(rxBuf), osWaitForever);
-    if (n == 0U)
-    {
-      continue;
-    }
-
-    /* Cap the printed payload at what fits after "echo: " and "\r\n". */
-    if (n > sizeof(txBuf) - 9U)
-    {
-      n = sizeof(txBuf) - 9U;
-    }
-    int len = snprintf(txBuf, sizeof(txBuf), "echo: %.*s\r\n", (int)n, (const char *)rxBuf);
-    if (len > 0)
-    {
-      (void)CDC_Write((const uint8_t *)txBuf, (uint16_t)len, 100U);
-    }
-  }
+  Protocol_RunForever();
 }
 
 /* Drives the HAL tick from TIM6's update interrupt. */

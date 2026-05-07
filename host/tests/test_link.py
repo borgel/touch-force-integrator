@@ -38,3 +38,42 @@ def test_cobs_decode_rejects_zero_in_payload() -> None:
     # 0x00 inside the COBS payload is a framing error.
     with pytest.raises(link.FramingError):
         link.cobs_decode(b"\x02a\x00b")
+
+
+# ---------------------------------------------------------------------------
+# Frame I/O
+# ---------------------------------------------------------------------------
+
+class _LoopTransport:
+    """Byte-stream transport with a paired in/out buffer for tests."""
+
+    def __init__(self, incoming: bytes = b"") -> None:
+        self._incoming = io.BytesIO(incoming)
+        self.outgoing = bytearray()
+
+    def read(self, n: int) -> bytes:
+        return self._incoming.read(n)
+
+    def write(self, data: bytes) -> int:
+        self.outgoing.extend(data)
+        return len(data)
+
+
+def test_write_frame_appends_zero_delimiter() -> None:
+    t = _LoopTransport()
+    link.write_frame(t, b"hi")
+    # COBS-encoded 'hi' is b'\x03hi'; followed by 0x00.
+    assert bytes(t.outgoing) == b"\x03hi\x00"
+
+
+def test_read_frame_drops_leading_zeros_and_returns_payload() -> None:
+    # Two consecutive 0x00 bytes on the wire (a stray delimiter
+    # followed by a real frame) should be tolerated.
+    wire = b"\x00\x03hi\x00"
+    t = _LoopTransport(wire)
+    assert link.read_frame(t) == b"hi"
+
+
+def test_read_frame_returns_none_at_eof() -> None:
+    t = _LoopTransport(b"")
+    assert link.read_frame(t) is None

@@ -174,6 +174,7 @@ void Protocol_RunForever(void)
     for (size_t i = 0U; i < n; i++)
     {
       uint8_t b = chunk[i];
+      // flag indicating start of a new frame
       if (b == 0x00U)
       {
         handle_frame();

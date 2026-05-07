@@ -439,9 +439,12 @@ static void Touch_StreamFrame(const struct USBH_LatestWisecocoData *snap)
   }
 }
 
-void _Touch_Task(void *argument)
+/* One-shot LCD setup: panel init, brightness, double-buffer enable
+ * for both layers, VBLANK-line interrupt arm, color-key, layer-0
+ * background draw, and layer-1 transparent clear. Called once from
+ * _Touch_Task before its render loop begins. */
+static void Touch_InitLCD(void)
 {
-  (void)argument;
   int res;
 
   res = BSP_LCD_Init(0, LCD_ORIENTATION_LANDSCAPE);
@@ -499,6 +502,12 @@ void _Touch_Task(void *argument)
     BSP_LCD_SwapVisibleBuffer(0, BSP_LCD_LAYER_FOREGROUND);
     BSP_LCD_SwapDrawBuffer(0, BSP_LCD_LAYER_FOREGROUND);
   }
+}
+
+void _Touch_Task(void *argument)
+{
+  (void)argument;
+  Touch_InitLCD();
 
   struct USBH_LatestWisecocoData snapshot;
   for (;;) {

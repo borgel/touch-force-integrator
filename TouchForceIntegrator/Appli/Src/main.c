@@ -16,6 +16,15 @@
 #include "touch_force.pb.h"
 #include "usbd_def.h"  /* USBD_OK */
 
+/* USB host enumeration state, defined in usb_host.c. APPLICATION_READY
+ * once a device has enumerated; we treat that as "host link up" for the
+ * status panel. */
+extern ApplicationTypeDef Appli_state;
+/* USB device handle (CDC-side), defined in usb_device.c. dev_state ==
+ * USBD_STATE_CONFIGURED once the host PC has enumerated and configured
+ * us. */
+extern USBD_HandleTypeDef hUsbDeviceFS;
+
 #include <stdio.h>
 #include <string.h>
 
@@ -118,6 +127,24 @@ static struct {
 } s_streaming = {
   .enabled = true,
 };
+
+/* Right-side status panel. The touch render area uses the left
+ * 640 px of the 800 px LCD; this strip fills the remaining 160 px
+ * on layer 1. We track what's currently painted and only repaint
+ * when something changes. Layer 1 is double-buffered, so a state
+ * change has to be painted onto BOTH buffers before they agree —
+ * s_statusDirty starts at 2 on a change and decrements per render. */
+#define STATUS_X0       640U
+#define STATUS_W        160U
+#define STATUS_H        480U
+#define STATUS_LED_R     12U
+
+static struct {
+  bool    hostUp;
+  bool    devUp;
+  uint8_t fingers;
+} s_displayedStatus;
+static uint8_t s_statusDirty;
 
 void HAL_LTDC_LineEventCallback(LTDC_HandleTypeDef *hltdc)
 {
@@ -230,11 +257,10 @@ void _USB_Task(void *argument)
  * background on layer 0, animated dots on layer 1 with color keying
  * for transparency), then waits on the wisecoco frame-published
  * semaphore and redraws on each new frame. */
-/* Per-frame LCD update: clear the touch-preview region to the
- * chroma-key color, then draw a 5x5 dot for each currently-touching
- * finger. Followed by the layer-1 double-buffer swap dance that
- * keeps rendering tear-free. */
-static void Touch_RenderToLCD(const struct USBH_LatestWisecocoData *snapshot)
+/* Clear the touch-preview region to the chroma-key color (so layer 0
+ * shows through), then draw a 5x5 dot for each currently-touching
+ * finger. Caller does the swap. */
+static void Touch_RenderTouchDots(const struct USBH_LatestWisecocoData *snapshot)
 {
   /* Constants are intentionally duplicated from _Touch_Task's init
    * block: KEY_565 also appears there for the layer-1 transparent
@@ -257,16 +283,72 @@ static void Touch_RenderToLCD(const struct USBH_LatestWisecocoData *snapshot)
           5, 5, 0xFF000000);
     }
   }
+}
 
-  /* SwapVisibleBuffer queues a layer-address change that the LTDC
-   * applies at the NEXT VBLANK (RELOAD_VERTICAL_BLANKING was set at
-   * init). Until that VBLANK, the LTDC is still scanning the OLD
-   * buffer, so SwapDrawBuffer would redirect the next iteration's
-   * draws to the still-being-scanned buffer and we'd tear.
-   *
-   * Drain any stale give from earlier in the frame, then wait for
-   * the next VBLANK to confirm the LTDC has actually picked up the
-   * new visible buffer. SwapDrawBuffer is then safe. */
+/* Sample USB host link, USB device link, and finger count, and bump
+ * s_statusDirty if any of them have changed since the last paint.
+ * Called every render-loop iteration, including the timeout path,
+ * so USB plug events refresh the panel even when the touchscreen
+ * is idle. */
+static void Touch_UpdateStatus(unsigned tipsTouchedDown)
+{
+  bool    hostUp  = (Appli_state == APPLICATION_READY);
+  bool    devUp   = (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED);
+
+  if (hostUp  != s_displayedStatus.hostUp ||
+      devUp   != s_displayedStatus.devUp)
+  {
+    s_displayedStatus.hostUp  = hostUp;
+    s_displayedStatus.devUp   = devUp;
+    s_statusDirty = 2U;  /* repaint both layer-1 buffers */
+  }
+}
+
+/* Paint the right-side status strip onto the current layer-1 draw
+ * buffer. Background is the color-key (transparent over layer 0's
+ * black), with white labels and red/green LED circles. Caller does
+ * the swap. */
+static void Touch_DrawStatus(void)
+{
+  const uint32_t KEY_565 = LCD_COLOR_RGB565_MAGENTA;
+
+  /* Clear strip to transparent, erasing last paint's values. */
+  UTIL_LCD_FillRect(STATUS_X0, 0, STATUS_W, STATUS_H, KEY_565);
+
+  UTIL_LCD_SetFont(&Font24);
+  UTIL_LCD_SetTextColor(UTIL_LCD_COLOR_WHITE);
+  /* MAGENTA back-color matches KEY_565 once converted, so glyph
+   * inter-pixels stay transparent over layer 0's black. */
+  UTIL_LCD_SetBackColor(UTIL_LCD_COLOR_MAGENTA);
+
+  UTIL_LCD_DisplayStringAt(STATUS_X0 + 12U, 20U,
+                           (uint8_t *)"Touch", LEFT_MODE);
+  UTIL_LCD_FillCircle(STATUS_X0 + 130U, 20+8U, STATUS_LED_R,
+                      s_displayedStatus.hostUp
+                        ? UTIL_LCD_COLOR_GREEN
+                        : UTIL_LCD_COLOR_RED);
+
+  UTIL_LCD_DisplayStringAt(STATUS_X0 + 12U, 60U,
+                           (uint8_t *)"Serial", LEFT_MODE);
+  UTIL_LCD_FillCircle(STATUS_X0 + 130U, 60+8, STATUS_LED_R,
+                      s_displayedStatus.devUp
+                        ? UTIL_LCD_COLOR_GREEN
+                        : UTIL_LCD_COLOR_RED);
+}
+
+/* Layer-1 double-buffer swap dance.
+ *
+ * SwapVisibleBuffer queues a layer-address change that the LTDC
+ * applies at the NEXT VBLANK (RELOAD_VERTICAL_BLANKING was set at
+ * init). Until that VBLANK, the LTDC is still scanning the OLD
+ * buffer, so SwapDrawBuffer would redirect the next iteration's
+ * draws to the still-being-scanned buffer and we'd tear.
+ *
+ * Drain any stale give from earlier in the frame, then wait for
+ * the next VBLANK to confirm the LTDC has actually picked up the
+ * new visible buffer. SwapDrawBuffer is then safe. */
+static void Touch_PresentLayer1(void)
+{
   BSP_LCD_SwapVisibleBuffer(0, BSP_LCD_LAYER_FOREGROUND);
   (void)xSemaphoreTake(s_vblankSem, 0);
   (void)xSemaphoreTake(s_vblankSem, pdMS_TO_TICKS(20));
@@ -404,16 +486,45 @@ void _Touch_Task(void *argument)
   (void)argument;
   Touch_InitLCD();
 
-  struct USBH_LatestWisecocoData snapshot;
+  /* Force the initial status paint so the panel is visible on boot
+   * even if the sampled state happens to match the all-zero default
+   * of s_displayedStatus. */
+  s_statusDirty = 2U;
+
+  /* lastSnapshot is kept across iterations so the timeout path can
+   * still resample the previous finger count for the status check
+   * (no new frame == count unchanged). */
+  static struct USBH_LatestWisecocoData lastSnapshot;
   for (;;) {
-    // Wait for the next published touch frame. When the touchscreen is
-    // idle the producer doesn't publish, so this task sleeps until there's
-    // actually something new to render.
-    if (!USBH_HID_WisecocoWaitFrame(&snapshot, HAL_MAX_DELAY)) {
+    struct USBH_LatestWisecocoData snapshot;
+    /* 250 ms timeout, not HAL_MAX_DELAY, so USB plug events refresh
+     * the status panel while the touchscreen is idle (no frames
+     * published). */
+    bool gotFrame = USBH_HID_WisecocoWaitFrame(&snapshot, pdMS_TO_TICKS(250));
+    if (gotFrame) {
+      lastSnapshot = snapshot;
+    }
+
+    Touch_UpdateStatus(lastSnapshot.tipsTouchedDown);
+
+    /* Both layer-1 buffers consistent and no new touch data: skip
+     * the swap so we don't waste a VBLANK wait. */
+    if (!gotFrame && s_statusDirty == 0U) {
       continue;
     }
-    Touch_RenderToLCD(&snapshot);
-    if (s_streaming.enabled) {
+
+    /* Always re-render dots before swapping: the buffer we're about
+     * to draw into may hold stale dot positions from two frames
+     * ago, and the status-only repaint path doesn't otherwise touch
+     * the dot region. */
+    Touch_RenderTouchDots(&lastSnapshot);
+    if (s_statusDirty > 0U) {
+      Touch_DrawStatus();
+      s_statusDirty--;
+    }
+    Touch_PresentLayer1();
+
+    if (gotFrame && s_streaming.enabled) {
       Touch_StreamFrame(&snapshot);
     }
   }

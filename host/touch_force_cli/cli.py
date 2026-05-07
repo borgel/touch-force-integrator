@@ -39,6 +39,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command", required=True)
     sub.add_parser("get-uptime", help="ask the MCU for its uptime in ms")
+    sub.add_parser("get-telemetry", help="ask the MCU for streaming counters")
     return p
 
 
@@ -56,6 +57,20 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"protocol error: {e}", file=sys.stderr)
                 return 3
             print(f"uptime: {ms} ms")
+            return 0
+        if args.command == "get-telemetry":
+            try:
+                sent, fails = lnk.get_telemetry()
+            except RemoteError as e:
+                print(f"MCU returned error: {e}", file=sys.stderr)
+                return 2
+            except ProtocolError as e:
+                print(f"protocol error: {e}", file=sys.stderr)
+                return 3
+            total = sent + fails
+            rate = (fails / total * 100.0) if total else 0.0
+            print(f"events sent: {sent}")
+            print(f"tx fails:    {fails}  ({rate:.3f}%)")
             return 0
         # argparse with required=True ensures we never reach here.
         raise AssertionError(f"unhandled command: {args.command!r}")

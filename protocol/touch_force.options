@@ -1,0 +1,8 @@
+# nanopb field-size constraints. Without these, nanopb emits
+# pb_callback_t for variable-length fields, which forces the caller
+# to write encode/decode callbacks. We want fixed-size structs and
+# zero malloc on the MCU.
+# Field names must be fully qualified (touchforce.v1.MessageName.field)
+# because the nanopb generator runs in protoc plugin mode, which
+# delivers field descriptors with their package prefix attached.
+touchforce.v1.ErrorResponse.message  max_size:64

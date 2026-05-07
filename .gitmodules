@@ -1,3 +1,6 @@
 [submodule "TouchForceIntegrator/Middlewares/nanopb"]
 	path = TouchForceIntegrator/Middlewares/nanopb
 	url = https://github.com/nanopb/nanopb.git
+[submodule "TouchForceIntegrator/Middlewares/cobs-c"]
+	path = TouchForceIntegrator/Middlewares/cobs-c
+	url = https://github.com/cmcqueen/cobs-c.git

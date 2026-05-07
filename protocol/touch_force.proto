@@ -1,0 +1,44 @@
+syntax = "proto3";
+
+package touchforce.v1;
+
+// Top-level wrapper for every host -> MCU message.
+//
+// Conventions (locked in by 2026-05-06 design spec):
+//   - request_id: opaque uint32 chosen by the host, echoed by the MCU
+//     in Response.request_id. SHOULD be non-zero (proto3 elides
+//     zero defaults on the wire, so 0 is indistinguishable from
+//     "unset").
+//   - Field 2 in both Request and Response is reserved across the
+//     whole protocol for Response.error, so command oneof slots
+//     start at field 3 with parallel numbers across Request/Response.
+message Request {
+  uint32 request_id = 1;
+  // field 2 reserved for symmetry with Response.error
+  oneof payload {
+    GetUptimeRequest get_uptime = 3;
+  }
+}
+
+// Top-level wrapper for every MCU -> host message (in v1, only
+// solicited responses; future versions may add an Event sibling).
+message Response {
+  uint32 request_id = 1;
+  oneof payload {
+    ErrorResponse     error      = 2;
+    GetUptimeResponse get_uptime = 3;
+  }
+}
+
+message ErrorResponse {
+  uint32 code    = 1;
+  string message = 2;
+}
+
+message GetUptimeRequest  {}
+
+message GetUptimeResponse {
+  // Milliseconds since MCU boot (HAL_GetTick wraps at ~49.7 days,
+  // documented in protocol/README.md).
+  uint32 uptime_ms = 1;
+}

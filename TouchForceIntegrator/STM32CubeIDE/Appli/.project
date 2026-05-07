@@ -678,5 +678,20 @@
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/_htmresc/st_logo_2020.png</locationURI>
 		</link>
+		<link>
+			<name>Application/User/protocol_task.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/protocol_task.c</locationURI>
+		</link>
+		<link>
+			<name>Application/User/proto/touch_force.pb.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/proto/touch_force.pb.c</locationURI>
+		</link>
+		<link>
+			<name>Middlewares/cobs-c/cobs.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/cobs-c/cobs.c</locationURI>
+		</link>
 	</linkedResources>
 </projectDescription>

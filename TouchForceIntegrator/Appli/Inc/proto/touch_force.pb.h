@@ -19,40 +19,125 @@ typedef struct _touchforce_v1_GetUptimeRequest {
     char dummy_field;
 } touchforce_v1_GetUptimeRequest;
 
-/* Top-level wrapper for every host -> MCU message.
-
- Conventions (locked in by 2026-05-06 design spec):
-   - request_id: opaque uint32 chosen by the host, echoed by the MCU
-     in Response.request_id. SHOULD be non-zero (proto3 elides
-     zero defaults on the wire, so 0 is indistinguishable from
-     "unset").
-   - Field 2 in both Request and Response is reserved across the
-     whole protocol for Response.error, so command oneof slots
-     start at field 3 with parallel numbers across Request/Response. */
-typedef struct _touchforce_v1_Request {
-    uint32_t request_id;
-    pb_size_t which_payload;
-    union _touchforce_v1_Request_payload {
-        touchforce_v1_GetUptimeRequest get_uptime;
-    } payload;
-} touchforce_v1_Request;
-
 typedef struct _touchforce_v1_GetUptimeResponse {
     /* Milliseconds since MCU boot (HAL_GetTick wraps at ~49.7 days,
  documented in protocol/README.md). */
     uint32_t uptime_ms;
 } touchforce_v1_GetUptimeResponse;
 
-/* Top-level wrapper for every MCU -> host message (in v1, only
- solicited responses; future versions may add an Event sibling). */
+/* Turn touch-frame streaming on or off. Default at boot is on.
+ Fire-and-forget: no response is sent. Reliability comes from
+ USB CDC; the host observes the side effect (events stop or
+ resume) to confirm. */
+typedef struct _touchforce_v1_SetTouchStreamingRequest {
+    bool enabled;
+} touchforce_v1_SetTouchStreamingRequest;
+
+typedef struct _touchforce_v1_GetTelemetryRequest {
+    char dummy_field;
+} touchforce_v1_GetTelemetryRequest;
+
+/* Host -> MCU command messages.
+
+ Conventions (v2-relaxed from v1):
+   - request_id: opaque uint32 chosen by the host, echoed by the
+     MCU in Response.request_id when a Response is sent. SHOULD
+     be non-zero (proto3 elides zero defaults on the wire). Some
+     commands are fire-and-forget and produce no Response; for
+     those the host doesn't track the id.
+   - Field 2 in both Request and Response is reserved for
+     Response.error. Command oneof slots start at field 3.
+   - Parallel field numbers across Request and Response when
+     both messages have the slot. Gaps in either oneof are
+     acceptable for fire-and-forget commands. */
+typedef struct _touchforce_v1_Request {
+    uint32_t request_id;
+    pb_size_t which_payload;
+    union _touchforce_v1_Request_payload {
+        touchforce_v1_GetUptimeRequest get_uptime;
+        touchforce_v1_SetTouchStreamingRequest set_touch_streaming;
+        touchforce_v1_GetTelemetryRequest get_telemetry;
+    } payload;
+} touchforce_v1_Request;
+
+typedef struct _touchforce_v1_GetTelemetryResponse {
+    /* Total TouchFrameEvents successfully written to USB CDC since
+ boot. Wraps after ~2 years at 60 Hz. */
+    uint32_t streaming_events_sent;
+    /* Total CDC_Write returns != USBD_OK during streaming. Both
+ USBD_BUSY (timeout) and USBD_FAIL (lower-layer error) bump
+ this counter. */
+    uint32_t streaming_tx_fails;
+} touchforce_v1_GetTelemetryResponse;
+
+/* MCU -> host reply messages. Always carries the same request_id
+ the host sent. */
 typedef struct _touchforce_v1_Response {
     uint32_t request_id;
     pb_size_t which_payload;
     union _touchforce_v1_Response_payload {
         touchforce_v1_ErrorResponse error;
         touchforce_v1_GetUptimeResponse get_uptime;
+        /* 4: gap — set_touch_streaming is fire-and-forget */
+        touchforce_v1_GetTelemetryResponse get_telemetry;
     } payload;
 } touchforce_v1_Response;
+
+typedef struct _touchforce_v1_TouchFinger {
+    /* Arbitrary id, stays constant to track this finger DURING a
+ single touch. */
+    uint32_t id;
+    /* True while this finger is touching. Goes false on the last
+ frame for a given finger (the up event) before the entry
+ disappears. */
+    bool touching;
+    /* Coordinates in pixels, post-rotation (firmware sets rotation
+ via USBH_HID_WisecocoSetRotation; ROTATE_90 is the current
+ setting and yields x in [0, 2880], y in [0, 2160]). */
+    uint32_t x;
+    uint32_t y;
+    /* Contact patch in pixels, post-rotation. Patch dimensions
+ swap with the axes for ROTATE_90 / ROTATE_270. */
+    uint32_t patch_width;
+    uint32_t patch_height;
+    /* Microseconds since this touch started (id was first seen). */
+    uint32_t touch_duration;
+} touchforce_v1_TouchFinger;
+
+/* One async event per published touch frame from the wisecoco
+ USB host. Atomic snapshot of all live fingers at one instant. */
+typedef struct _touchforce_v1_TouchFrameEvent {
+    /* How many fingers were reported in any state this frame
+ (0..MAX_TOUCHES). Determines how many entries in fingers
+ are meaningful. */
+    uint32_t live_touches;
+    /* How many fingers were actively touching down this frame. */
+    uint32_t tips_touched_down;
+    /* One entry per live finger, in [0, live_touches). */
+    pb_size_t fingers_count;
+    touchforce_v1_TouchFinger fingers[10];
+} touchforce_v1_TouchFrameEvent;
+
+/* MCU -> host async messages. Not correlated to any Request. */
+typedef struct _touchforce_v1_Event {
+    pb_size_t which_payload;
+    union _touchforce_v1_Event_payload {
+        touchforce_v1_TouchFrameEvent touch_frame;
+    } payload;
+} touchforce_v1_Event;
+
+/* Top-level wrapper for every COBS frame on the wire, regardless
+ of direction. Receivers always pb_decode(Frame) first, then
+ switch on which_kind. Adding a new top-level kind in the future
+ (heartbeats, log lines, etc.) is one more oneof variant here. */
+typedef struct _touchforce_v1_Frame {
+    pb_size_t which_kind;
+    union _touchforce_v1_Frame_kind {
+        touchforce_v1_Request request;
+        touchforce_v1_Response response;
+        touchforce_v1_Event event;
+    } kind;
+} touchforce_v1_Frame;
 
 
 #ifdef __cplusplus
@@ -60,43 +145,99 @@ extern "C" {
 #endif
 
 /* Initializer values for message structs */
+#define touchforce_v1_Frame_init_default         {0, {touchforce_v1_Request_init_default}}
 #define touchforce_v1_Request_init_default       {0, 0, {touchforce_v1_GetUptimeRequest_init_default}}
 #define touchforce_v1_Response_init_default      {0, 0, {touchforce_v1_ErrorResponse_init_default}}
+#define touchforce_v1_Event_init_default         {0, {touchforce_v1_TouchFrameEvent_init_default}}
 #define touchforce_v1_ErrorResponse_init_default {0, ""}
 #define touchforce_v1_GetUptimeRequest_init_default {0}
 #define touchforce_v1_GetUptimeResponse_init_default {0}
+#define touchforce_v1_SetTouchStreamingRequest_init_default {0}
+#define touchforce_v1_GetTelemetryRequest_init_default {0}
+#define touchforce_v1_GetTelemetryResponse_init_default {0, 0}
+#define touchforce_v1_TouchFrameEvent_init_default {0, 0, 0, {touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default}}
+#define touchforce_v1_TouchFinger_init_default   {0, 0, 0, 0, 0, 0, 0}
+#define touchforce_v1_Frame_init_zero            {0, {touchforce_v1_Request_init_zero}}
 #define touchforce_v1_Request_init_zero          {0, 0, {touchforce_v1_GetUptimeRequest_init_zero}}
 #define touchforce_v1_Response_init_zero         {0, 0, {touchforce_v1_ErrorResponse_init_zero}}
+#define touchforce_v1_Event_init_zero            {0, {touchforce_v1_TouchFrameEvent_init_zero}}
 #define touchforce_v1_ErrorResponse_init_zero    {0, ""}
 #define touchforce_v1_GetUptimeRequest_init_zero {0}
 #define touchforce_v1_GetUptimeResponse_init_zero {0}
+#define touchforce_v1_SetTouchStreamingRequest_init_zero {0}
+#define touchforce_v1_GetTelemetryRequest_init_zero {0}
+#define touchforce_v1_GetTelemetryResponse_init_zero {0, 0}
+#define touchforce_v1_TouchFrameEvent_init_zero  {0, 0, 0, {touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero}}
+#define touchforce_v1_TouchFinger_init_zero      {0, 0, 0, 0, 0, 0, 0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define touchforce_v1_ErrorResponse_code_tag     1
 #define touchforce_v1_ErrorResponse_message_tag  2
+#define touchforce_v1_GetUptimeResponse_uptime_ms_tag 1
+#define touchforce_v1_SetTouchStreamingRequest_enabled_tag 1
 #define touchforce_v1_Request_request_id_tag     1
 #define touchforce_v1_Request_get_uptime_tag     3
-#define touchforce_v1_GetUptimeResponse_uptime_ms_tag 1
+#define touchforce_v1_Request_set_touch_streaming_tag 4
+#define touchforce_v1_Request_get_telemetry_tag  5
+#define touchforce_v1_GetTelemetryResponse_streaming_events_sent_tag 1
+#define touchforce_v1_GetTelemetryResponse_streaming_tx_fails_tag 2
 #define touchforce_v1_Response_request_id_tag    1
 #define touchforce_v1_Response_error_tag         2
 #define touchforce_v1_Response_get_uptime_tag    3
+#define touchforce_v1_Response_get_telemetry_tag 5
+#define touchforce_v1_TouchFinger_id_tag         1
+#define touchforce_v1_TouchFinger_touching_tag   2
+#define touchforce_v1_TouchFinger_x_tag          3
+#define touchforce_v1_TouchFinger_y_tag          4
+#define touchforce_v1_TouchFinger_patch_width_tag 5
+#define touchforce_v1_TouchFinger_patch_height_tag 6
+#define touchforce_v1_TouchFinger_touch_duration_tag 7
+#define touchforce_v1_TouchFrameEvent_live_touches_tag 1
+#define touchforce_v1_TouchFrameEvent_tips_touched_down_tag 2
+#define touchforce_v1_TouchFrameEvent_fingers_tag 3
+#define touchforce_v1_Event_touch_frame_tag      1
+#define touchforce_v1_Frame_request_tag          1
+#define touchforce_v1_Frame_response_tag         2
+#define touchforce_v1_Frame_event_tag            3
 
 /* Struct field encoding specification for nanopb */
+#define touchforce_v1_Frame_FIELDLIST(X, a) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (kind,request,kind.request),   1) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (kind,response,kind.response),   2) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (kind,event,kind.event),   3)
+#define touchforce_v1_Frame_CALLBACK NULL
+#define touchforce_v1_Frame_DEFAULT NULL
+#define touchforce_v1_Frame_kind_request_MSGTYPE touchforce_v1_Request
+#define touchforce_v1_Frame_kind_response_MSGTYPE touchforce_v1_Response
+#define touchforce_v1_Frame_kind_event_MSGTYPE touchforce_v1_Event
+
 #define touchforce_v1_Request_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   request_id,        1) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_uptime,payload.get_uptime),   3)
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_uptime,payload.get_uptime),   3) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,set_touch_streaming,payload.set_touch_streaming),   4) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_telemetry,payload.get_telemetry),   5)
 #define touchforce_v1_Request_CALLBACK NULL
 #define touchforce_v1_Request_DEFAULT NULL
 #define touchforce_v1_Request_payload_get_uptime_MSGTYPE touchforce_v1_GetUptimeRequest
+#define touchforce_v1_Request_payload_set_touch_streaming_MSGTYPE touchforce_v1_SetTouchStreamingRequest
+#define touchforce_v1_Request_payload_get_telemetry_MSGTYPE touchforce_v1_GetTelemetryRequest
 
 #define touchforce_v1_Response_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   request_id,        1) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,error,payload.error),   2) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_uptime,payload.get_uptime),   3)
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_uptime,payload.get_uptime),   3) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_telemetry,payload.get_telemetry),   5)
 #define touchforce_v1_Response_CALLBACK NULL
 #define touchforce_v1_Response_DEFAULT NULL
 #define touchforce_v1_Response_payload_error_MSGTYPE touchforce_v1_ErrorResponse
 #define touchforce_v1_Response_payload_get_uptime_MSGTYPE touchforce_v1_GetUptimeResponse
+#define touchforce_v1_Response_payload_get_telemetry_MSGTYPE touchforce_v1_GetTelemetryResponse
+
+#define touchforce_v1_Event_FIELDLIST(X, a) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,touch_frame,payload.touch_frame),   1)
+#define touchforce_v1_Event_CALLBACK NULL
+#define touchforce_v1_Event_DEFAULT NULL
+#define touchforce_v1_Event_payload_touch_frame_MSGTYPE touchforce_v1_TouchFrameEvent
 
 #define touchforce_v1_ErrorResponse_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   code,              1) \
@@ -114,26 +255,82 @@ X(a, STATIC,   SINGULAR, UINT32,   uptime_ms,         1)
 #define touchforce_v1_GetUptimeResponse_CALLBACK NULL
 #define touchforce_v1_GetUptimeResponse_DEFAULT NULL
 
+#define touchforce_v1_SetTouchStreamingRequest_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BOOL,     enabled,           1)
+#define touchforce_v1_SetTouchStreamingRequest_CALLBACK NULL
+#define touchforce_v1_SetTouchStreamingRequest_DEFAULT NULL
+
+#define touchforce_v1_GetTelemetryRequest_FIELDLIST(X, a) \
+
+#define touchforce_v1_GetTelemetryRequest_CALLBACK NULL
+#define touchforce_v1_GetTelemetryRequest_DEFAULT NULL
+
+#define touchforce_v1_GetTelemetryResponse_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   streaming_events_sent,   1) \
+X(a, STATIC,   SINGULAR, UINT32,   streaming_tx_fails,   2)
+#define touchforce_v1_GetTelemetryResponse_CALLBACK NULL
+#define touchforce_v1_GetTelemetryResponse_DEFAULT NULL
+
+#define touchforce_v1_TouchFrameEvent_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   live_touches,      1) \
+X(a, STATIC,   SINGULAR, UINT32,   tips_touched_down,   2) \
+X(a, STATIC,   REPEATED, MESSAGE,  fingers,           3)
+#define touchforce_v1_TouchFrameEvent_CALLBACK NULL
+#define touchforce_v1_TouchFrameEvent_DEFAULT NULL
+#define touchforce_v1_TouchFrameEvent_fingers_MSGTYPE touchforce_v1_TouchFinger
+
+#define touchforce_v1_TouchFinger_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   id,                1) \
+X(a, STATIC,   SINGULAR, BOOL,     touching,          2) \
+X(a, STATIC,   SINGULAR, UINT32,   x,                 3) \
+X(a, STATIC,   SINGULAR, UINT32,   y,                 4) \
+X(a, STATIC,   SINGULAR, UINT32,   patch_width,       5) \
+X(a, STATIC,   SINGULAR, UINT32,   patch_height,      6) \
+X(a, STATIC,   SINGULAR, UINT32,   touch_duration,    7)
+#define touchforce_v1_TouchFinger_CALLBACK NULL
+#define touchforce_v1_TouchFinger_DEFAULT NULL
+
+extern const pb_msgdesc_t touchforce_v1_Frame_msg;
 extern const pb_msgdesc_t touchforce_v1_Request_msg;
 extern const pb_msgdesc_t touchforce_v1_Response_msg;
+extern const pb_msgdesc_t touchforce_v1_Event_msg;
 extern const pb_msgdesc_t touchforce_v1_ErrorResponse_msg;
 extern const pb_msgdesc_t touchforce_v1_GetUptimeRequest_msg;
 extern const pb_msgdesc_t touchforce_v1_GetUptimeResponse_msg;
+extern const pb_msgdesc_t touchforce_v1_SetTouchStreamingRequest_msg;
+extern const pb_msgdesc_t touchforce_v1_GetTelemetryRequest_msg;
+extern const pb_msgdesc_t touchforce_v1_GetTelemetryResponse_msg;
+extern const pb_msgdesc_t touchforce_v1_TouchFrameEvent_msg;
+extern const pb_msgdesc_t touchforce_v1_TouchFinger_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
+#define touchforce_v1_Frame_fields &touchforce_v1_Frame_msg
 #define touchforce_v1_Request_fields &touchforce_v1_Request_msg
 #define touchforce_v1_Response_fields &touchforce_v1_Response_msg
+#define touchforce_v1_Event_fields &touchforce_v1_Event_msg
 #define touchforce_v1_ErrorResponse_fields &touchforce_v1_ErrorResponse_msg
 #define touchforce_v1_GetUptimeRequest_fields &touchforce_v1_GetUptimeRequest_msg
 #define touchforce_v1_GetUptimeResponse_fields &touchforce_v1_GetUptimeResponse_msg
+#define touchforce_v1_SetTouchStreamingRequest_fields &touchforce_v1_SetTouchStreamingRequest_msg
+#define touchforce_v1_GetTelemetryRequest_fields &touchforce_v1_GetTelemetryRequest_msg
+#define touchforce_v1_GetTelemetryResponse_fields &touchforce_v1_GetTelemetryResponse_msg
+#define touchforce_v1_TouchFrameEvent_fields &touchforce_v1_TouchFrameEvent_msg
+#define touchforce_v1_TouchFinger_fields &touchforce_v1_TouchFinger_msg
 
 /* Maximum encoded size of messages (where known) */
-#define TOUCHFORCE_V1_TOUCH_FORCE_PB_H_MAX_SIZE  touchforce_v1_Response_size
+#define TOUCHFORCE_V1_TOUCH_FORCE_PB_H_MAX_SIZE  touchforce_v1_Frame_size
 #define touchforce_v1_ErrorResponse_size         71
+#define touchforce_v1_Event_size                 415
+#define touchforce_v1_Frame_size                 418
+#define touchforce_v1_GetTelemetryRequest_size   0
+#define touchforce_v1_GetTelemetryResponse_size  12
 #define touchforce_v1_GetUptimeRequest_size      0
 #define touchforce_v1_GetUptimeResponse_size     6
-#define touchforce_v1_Request_size               8
+#define touchforce_v1_Request_size               10
 #define touchforce_v1_Response_size              79
+#define touchforce_v1_SetTouchStreamingRequest_size 2
+#define touchforce_v1_TouchFinger_size           38
+#define touchforce_v1_TouchFrameEvent_size       412
 
 #ifdef __cplusplus
 } /* extern "C" */

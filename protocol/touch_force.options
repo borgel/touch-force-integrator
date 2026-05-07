@@ -6,3 +6,4 @@
 # because the nanopb generator runs in protoc plugin mode, which
 # delivers field descriptors with their package prefix attached.
 touchforce.v1.ErrorResponse.message  max_size:64
+touchforce.v1.TouchFrameEvent.fingers  max_count:10

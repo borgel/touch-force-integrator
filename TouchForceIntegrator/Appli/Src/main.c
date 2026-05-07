@@ -331,6 +331,49 @@ void _USB_Task(void *argument)
  * background on layer 0, animated dots on layer 1 with color keying
  * for transparency), then waits on the wisecoco frame-published
  * semaphore and redraws on each new frame. */
+/* Per-frame LCD update: clear the touch-preview region to the
+ * chroma-key color, then draw a 5x5 dot for each currently-touching
+ * finger. Followed by the layer-1 double-buffer swap dance that
+ * keeps rendering tear-free. */
+static void Touch_RenderToLCD(const struct USBH_LatestWisecocoData *snapshot)
+{
+  /* Constants are intentionally duplicated from _Touch_Task's init
+   * block: KEY_565 also appears there for the layer-1 transparent
+   * clear at startup. The handful of touch-area constants are local
+   * to the per-frame work. */
+  const uint16_t TOUCH_W  = 640;
+  const uint16_t TOUCH_H  = 480;
+  const uint16_t TOUCH_X0 = 0;
+  const uint16_t TOUCH_Y0 = 0;
+  const uint32_t KEY_565  = LCD_COLOR_RGB565_MAGENTA;
+
+  // Clear only the touch area to KEY (transparent), erasing last frame's dots.
+  UTIL_LCD_FillRect(TOUCH_X0, TOUCH_Y0, TOUCH_W, TOUCH_H, KEY_565);
+
+  for (unsigned i = 0; i < snapshot->liveTouches; i++) {
+    struct USBH_WCSingleFinger const * const f = &snapshot->fingers[i];
+    if (f->touching) {
+      UTIL_LCD_FillRect(TOUCH_X0 + f->xFrac * TOUCH_W,
+          TOUCH_Y0 + f->yFrac * TOUCH_H,
+          5, 5, 0xFF000000);
+    }
+  }
+
+  /* SwapVisibleBuffer queues a layer-address change that the LTDC
+   * applies at the NEXT VBLANK (RELOAD_VERTICAL_BLANKING was set at
+   * init). Until that VBLANK, the LTDC is still scanning the OLD
+   * buffer, so SwapDrawBuffer would redirect the next iteration's
+   * draws to the still-being-scanned buffer and we'd tear.
+   *
+   * Drain any stale give from earlier in the frame, then wait for
+   * the next VBLANK to confirm the LTDC has actually picked up the
+   * new visible buffer. SwapDrawBuffer is then safe. */
+  BSP_LCD_SwapVisibleBuffer(0, BSP_LCD_LAYER_FOREGROUND);
+  (void)xSemaphoreTake(s_vblankSem, 0);
+  (void)xSemaphoreTake(s_vblankSem, pdMS_TO_TICKS(20));
+  BSP_LCD_SwapDrawBuffer(0, BSP_LCD_LAYER_FOREGROUND);
+}
+
 void _Touch_Task(void *argument)
 {
   (void)argument;
@@ -400,32 +443,8 @@ void _Touch_Task(void *argument)
     if (!USBH_HID_WisecocoWaitFrame(&snapshot, HAL_MAX_DELAY)) {
       continue;
     }
-
-    // Clear only the touch area to KEY (transparent), erasing last frame's dots.
-    UTIL_LCD_FillRect(TOUCH_X0, TOUCH_Y0, TOUCH_W, TOUCH_H, KEY_565);
-
-    for (unsigned i = 0; i < snapshot.liveTouches; i++) {
-      struct USBH_WCSingleFinger const * const f = &snapshot.fingers[i];
-      if (f->touching) {
-        UTIL_LCD_FillRect(TOUCH_X0 + f->xFrac * TOUCH_W,
-            TOUCH_Y0 + f->yFrac * TOUCH_H,
-            5, 5, 0xFF000000);
-      }
-    }
-
-    /* SwapVisibleBuffer queues a layer-address change that the LTDC
-     * applies at the NEXT VBLANK (RELOAD_VERTICAL_BLANKING was set at
-     * init). Until that VBLANK, the LTDC is still scanning the OLD
-     * buffer, so SwapDrawBuffer would redirect the next iteration's
-     * draws to the still-being-scanned buffer and we'd tear.
-     *
-     * Drain any stale give from earlier in the frame, then wait for
-     * the next VBLANK to confirm the LTDC has actually picked up the
-     * new visible buffer. SwapDrawBuffer is then safe. */
-    BSP_LCD_SwapVisibleBuffer(0, BSP_LCD_LAYER_FOREGROUND);
-    (void)xSemaphoreTake(s_vblankSem, 0);
-    (void)xSemaphoreTake(s_vblankSem, pdMS_TO_TICKS(20));
-    BSP_LCD_SwapDrawBuffer(0, BSP_LCD_LAYER_FOREGROUND);
+    Touch_RenderToLCD(&snapshot);
+    // Touch_StreamFrame() call added in Task 2.3
   }
 }
 

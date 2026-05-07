@@ -9,6 +9,7 @@
 #include "pb_encode.h"
 #include "touch_force.pb.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 

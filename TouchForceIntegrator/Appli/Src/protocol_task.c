@@ -13,31 +13,33 @@
 #include <stdint.h>
 #include <string.h>
 
-/* Worst-case sizes for v1.
- *
- *   Request encoded:           request_id (5) + oneof tag (1) + sub-msg
- *                              length (1) + GetUptimeRequest body (0)
- *                              = 7 bytes typical.
- *   Response encoded:          request_id (5) + oneof tag (1) + sub-msg
- *                              length (1) + GetUptimeResponse uptime_ms
- *                              (5) = 12 bytes typical, ErrorResponse
- *                              with full 64-byte message ~75 bytes.
- *
- * COBS overhead: 1 byte per 254 bytes plus a leading overhead byte.
- * For our sizes that means +2 bytes worst case.
- *
- * 128 is comfortably oversized and easy to reason about. */
-#define PROTO_FRAME_MAX_BYTES   128U
-#define PROTO_DECODED_MAX_BYTES 128U
+/* Telemetry counters live in main.c (touched by Touch_StreamFrame).
+ * protocol_task.c only reads them when handling GetTelemetry. */
+extern volatile uint32_t s_streamingEventsSent;
+extern volatile uint32_t s_streamingTxFails;
 
-/* Read timeout for assembling a single frame. We don't actually need
- * a deadline here -- the loop just blocks on CDC_Read until the host
- * sends something -- so use osWaitForever via the HAL_MAX_DELAY
- * sentinel that CDC_Read recognizes. */
+/* Worst-case sizes for v2.
+ *
+ *   Incoming Frame{Request}: request_id (5) + oneof tag (1) +
+ *     length (1) + payload (largest current: SetTouchStreaming
+ *     ~3 bytes; future commands grow). Plus Frame envelope tag
+ *     (1) + length (1). Well under 64 bytes for v2.
+ *
+ *   Outgoing Frame{Response}: largest is ErrorResponse with
+ *     full 64-byte message (~75 bytes Response) plus Frame
+ *     envelope ~3 bytes = ~78 bytes.
+ *
+ * COBS overhead: +1 per 254 + 1 leading byte. 256 covers it
+ * comfortably and stays a power of 2 for cache cleanliness. */
+#define PROTO_FRAME_MAX_BYTES   256U
+#define PROTO_DECODED_MAX_BYTES 256U
+
+/* Read timeout for assembling a single frame. */
 #define PROTO_RX_BLOCK_FOREVER  HAL_MAX_DELAY
 
-/* CDC_Write timeout, milliseconds. Generous; the existing _CDC_Task
- * echo path uses 100ms with no observed problems. */
+/* Outgoing response timeout. Different from Touch_StreamFrame's
+ * 5ms drop-on-busy: a Response is correlated to a Request so
+ * the host is actively waiting; we should pay a small wait. */
 #define PROTO_TX_TIMEOUT_MS     200U
 
 static uint8_t s_rxFrame[PROTO_FRAME_MAX_BYTES];
@@ -46,15 +48,11 @@ static uint8_t s_decodedBuf[PROTO_DECODED_MAX_BYTES];
 static uint8_t s_responseBuf[PROTO_DECODED_MAX_BYTES];
 static uint8_t s_txFrame[PROTO_FRAME_MAX_BYTES];
 
-/* Reset the frame accumulator. Called after every successful frame
- * dispatch and after every overflow drop. */
 static void rx_reset(void)
 {
   s_rxFrameLen = 0U;
 }
 
-/* Append one byte to the frame accumulator. Returns false (and
- * resets the accumulator) on overflow. */
 static bool rx_append(uint8_t b)
 {
   if (s_rxFrameLen >= PROTO_FRAME_MAX_BYTES)
@@ -66,14 +64,19 @@ static bool rx_append(uint8_t b)
   return true;
 }
 
-/* Build the GetUptime response. */
 static void fill_get_uptime_response(touchforce_v1_Response *resp)
 {
   resp->which_payload = touchforce_v1_Response_get_uptime_tag;
   resp->payload.get_uptime.uptime_ms = (uint32_t)HAL_GetTick();
 }
 
-/* Build a generic error response. msg may be NULL. */
+static void fill_get_telemetry_response(touchforce_v1_Response *resp)
+{
+  resp->which_payload = touchforce_v1_Response_get_telemetry_tag;
+  resp->payload.get_telemetry.streaming_events_sent = s_streamingEventsSent;
+  resp->payload.get_telemetry.streaming_tx_fails    = s_streamingTxFails;
+}
+
 static void fill_error_response(touchforce_v1_Response *resp,
                                 uint32_t code, const char *msg)
 {
@@ -82,23 +85,24 @@ static void fill_error_response(touchforce_v1_Response *resp,
   resp->payload.error.message[0] = '\0';
   if (msg != NULL)
   {
-    /* The .options file bounds .message at 64 bytes. */
     size_t cap = sizeof(resp->payload.error.message);
     strncpy(resp->payload.error.message, msg, cap - 1U);
     resp->payload.error.message[cap - 1U] = '\0';
   }
 }
 
-/* Encode resp into s_responseBuf, COBS-encode that into s_txFrame
- * with a trailing 0x00, and CDC_Write it. */
+/* Wrap resp in Frame{response: resp}, encode via nanopb,
+ * COBS-encode + 0x00 delimiter, CDC_Write. */
 static void send_response(const touchforce_v1_Response *resp)
 {
+  touchforce_v1_Frame frame = touchforce_v1_Frame_init_zero;
+  frame.which_kind = touchforce_v1_Frame_response_tag;
+  frame.kind.response = *resp;
+
   pb_ostream_t os = pb_ostream_from_buffer(s_responseBuf,
                                            sizeof(s_responseBuf));
-  if (!pb_encode(&os, touchforce_v1_Response_fields, resp))
+  if (!pb_encode(&os, touchforce_v1_Frame_fields, &frame))
   {
-    /* Encoder ran out of buffer or hit a logic bug. Nothing useful
-     * we can transmit; drop. */
     return;
   }
 
@@ -114,7 +118,12 @@ static void send_response(const touchforce_v1_Response *resp)
                   PROTO_TX_TIMEOUT_MS);
 }
 
-/* Process a single COBS-delimited frame from s_rxFrame. */
+/* Process a single COBS-delimited frame from s_rxFrame.
+ *
+ * v2 wire format: every COBS frame is a Frame{kind} message.
+ * For host->MCU traffic we only expect Frame{request}; anything
+ * else (Response, Event) is dropped because it has no meaning
+ * in this direction. */
 static void handle_frame(void)
 {
   if (s_rxFrameLen == 0U)
@@ -122,34 +131,52 @@ static void handle_frame(void)
     return;
   }
 
-  /* COBS-decode in place into s_decodedBuf. */
   cobs_decode_result dec = cobs_decode(s_decodedBuf, sizeof(s_decodedBuf),
                                        s_rxFrame, s_rxFrameLen);
   if (dec.status != COBS_DECODE_OK)
   {
-    /* Frame was malformed; we don't echo a Response because we have
-     * no request_id to echo into it. Just drop. */
     return;
   }
 
-  touchforce_v1_Request req = touchforce_v1_Request_init_zero;
+  touchforce_v1_Frame frame = touchforce_v1_Frame_init_zero;
   pb_istream_t is = pb_istream_from_buffer(s_decodedBuf, dec.out_len);
-  if (!pb_decode(&is, touchforce_v1_Request_fields, &req))
+  if (!pb_decode(&is, touchforce_v1_Frame_fields, &frame))
   {
     return;
   }
 
-  touchforce_v1_Response resp = touchforce_v1_Response_init_zero;
-  resp.request_id = req.request_id;
+  /* We only handle Requests on this side of the wire. */
+  if (frame.which_kind != touchforce_v1_Frame_request_tag)
+  {
+    return;
+  }
+  const touchforce_v1_Request *req = &frame.kind.request;
 
-  switch (req.which_payload)
+  /* SetTouchStreaming is fire-and-forget — apply state and return
+   * with no Response. */
+  if (req->which_payload == touchforce_v1_Request_set_touch_streaming_tag)
+  {
+    Touch_SetStreaming(req->payload.set_touch_streaming.enabled);
+    return;
+  }
+
+  /* Other commands always send a Response (even errors) so the
+   * host can correlate by request_id. */
+  touchforce_v1_Response resp = touchforce_v1_Response_init_zero;
+  resp.request_id = req->request_id;
+
+  switch (req->which_payload)
   {
     case touchforce_v1_Request_get_uptime_tag:
       fill_get_uptime_response(&resp);
       break;
+    case touchforce_v1_Request_get_telemetry_tag:
+      fill_get_telemetry_response(&resp);
+      break;
     default:
-      /* Unknown command tag (host running newer protocol than MCU).
-       * Reply with ErrorResponse so the host can correlate. */
+      /* Unknown command tag (host running newer protocol than MCU,
+       * or empty oneof / corrupt payload). Reply with ErrorResponse
+       * so the host can correlate. */
       fill_error_response(&resp, 1U, "unknown command");
       break;
   }
@@ -174,7 +201,7 @@ void Protocol_RunForever(void)
     for (size_t i = 0U; i < n; i++)
     {
       uint8_t b = chunk[i];
-      // flag indicating start of a new frame
+      // 0x00 marks the end of one COBS frame and the start of the next
       if (b == 0x00U)
       {
         handle_frame();

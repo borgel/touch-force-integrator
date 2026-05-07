@@ -37,8 +37,10 @@ mkdir -p generated/c generated/python
 
 # --- Generate ---------------------------------------------------------------
 
+NANOPB_PROTOC="$(dirname "$NANOPB_GEN")/protoc"
+
 echo "==> nanopb generator -> generated/c/"
-python3 "$NANOPB_GEN" --output-dir=generated/c touch_force.proto
+python3 "$NANOPB_PROTOC" --proto_path=. --nanopb_out=generated/c touch_force.proto
 
 echo "==> protoc --python_out -> generated/python/"
 protoc --python_out=generated/python touch_force.proto

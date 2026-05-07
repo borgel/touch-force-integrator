@@ -412,9 +412,6 @@ void _Render_Task(void *argument)
   }
 }
 
-/* Echo example for the USB CDC virtual COM port. Waits for the host
- * to enumerate the device, sends a greeting, then echoes any text
- * the host sends back as "echo: <text>\r\n". */
 /* Drives the touchforce.v1 serial protocol over USB CDC. Runs the
  * COBS frame accumulator + nanopb dispatcher forever after the host
  * has enumerated the device. */

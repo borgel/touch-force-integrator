@@ -119,6 +119,16 @@
     #log .log-send { color: #93c5fd; }
     #log .log-recv { color: #86efac; }
     #log .log-info { color: #fbbf24; }
+
+    #touch-canvas {
+      display: block;
+      width: 100%;
+      max-width: 1200px;
+      margin: 16px auto;
+      aspect-ratio: 2880 / 2160;
+      background: #fafafa;
+      border: 1px solid #ddd;
+    }
   </style>
 </head>
 <body>
@@ -141,6 +151,9 @@
   </div>
 
   <div id="status-line" class="status-line">Not connected</div>
+
+  <!-- Touch canvas -->
+  <canvas id="touch-canvas"></canvas>
 
   <!-- Log -->
   <div class="log-label" style="margin-top:1.25rem;">Log</div>
@@ -690,6 +703,73 @@ btnTelemetry.addEventListener("click", async () => {
     logErr("Get Telemetry failed: " + e.message);
   }
 });
+
+// ---- Touch canvas rendering ------------------------------------------------
+//
+// DISPLAY_W_PX / DISPLAY_H_PX are the rotated display dimensions —
+// firmware sets USBH_HID_WisecocoSetRotation(USBH_WC_ROTATE_90), which
+// swaps the axes. If the firmware rotation changes, update these.
+const DISPLAY_W_PX = 2880;
+const DISPLAY_H_PX = 2160;
+
+const canvas = document.getElementById("touch-canvas");
+const ctx = canvas.getContext("2d");
+let lastFrame = null;  // last rendered TouchFrameEvent for hollow-on-release semantics
+
+function resizeCanvas() {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width  = canvas.clientWidth  * dpr;
+  canvas.height = canvas.clientHeight * dpr;
+  drawCanvas();
+}
+window.addEventListener("resize", resizeCanvas);
+
+function drawCanvas() {
+  ctx.fillStyle = "#fafafa";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (!lastFrame) return;
+
+  const scaleX = canvas.width  / DISPLAY_W_PX;
+  const scaleY = canvas.height / DISPLAY_H_PX;
+  ctx.font = `${Math.round(20 * (window.devicePixelRatio || 1))}px monospace`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "alphabetic";
+
+  for (const f of lastFrame.fingers) {
+    const cx = f.x * scaleX;
+    const cy = f.y * scaleY;
+    const rx = (f.patchWidth  / 2) * scaleX;
+    const ry = (f.patchHeight / 2) * scaleY;
+    ctx.beginPath();
+    ctx.ellipse(cx, cy, Math.max(rx, 4), Math.max(ry, 4), 0, 0, 2 * Math.PI);
+    if (f.touching) {
+      ctx.fillStyle = "rgba(40, 80, 200, 0.55)";
+      ctx.fill();
+      ctx.strokeStyle = "rgba(40, 80, 200, 0.9)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    } else {
+      ctx.strokeStyle = "rgba(150, 150, 150, 0.7)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+    }
+
+    // ID label just above the ellipse top edge.
+    ctx.fillStyle = "#222";
+    ctx.fillText(`id=${f.id}`, cx, cy - ry - 6);
+  }
+}
+
+// Wire the dispatcher's event handler. Each touch_frame event becomes
+// the new "lastFrame" and triggers a redraw.
+touchEventHandler = (event) => {
+  if (event.payload !== "touchFrame") return;
+  lastFrame = event.touchFrame;
+  drawCanvas();
+};
+
+// Initial sizing pass after layout settles.
+window.addEventListener("load", resizeCanvas);
 </script>
 </body>
 </html>

@@ -551,6 +551,17 @@ void Touch_SetStreaming(bool enabled)
   s_streaming_enabled = enabled;
 }
 
+/* Read the streaming telemetry counters. Called from protocol_task.c
+ * when handling GetTelemetry. The two reads are sequenced but not
+ * atomic relative to _Touch_Task's increments — a torn value just
+ * looks like a counter from a few microseconds earlier, which is fine
+ * for monotonic counters. */
+void Touch_GetTelemetry(uint32_t *sent, uint32_t *fails)
+{
+  *sent  = s_streamingEventsSent;
+  *fails = s_streamingTxFails;
+}
+
 void Error_Handler(void)
 {
   printf("Error handler\n");

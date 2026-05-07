@@ -20,6 +20,7 @@ extern "C" {
 #include "stm32h7rsxx_ll_exti.h"
 
 #include <stdbool.h>
+#include <stdint.h>
 
 void Error_Handler(void);
 
@@ -27,6 +28,13 @@ void Error_Handler(void);
  * streamer. Called from protocol_task.c on a SetTouchStreaming
  * request. Default state at boot is enabled. */
 void Touch_SetStreaming(bool enabled);
+
+/* Defined in main.c — read the current values of the streaming
+ * telemetry counters into *sent and *fails. Reads are non-atomic
+ * (each counter is a 32-bit volatile read on Cortex-M), so a value
+ * may be a few microseconds stale; that's harmless for monotonic
+ * counters reported via GetTelemetry. */
+void Touch_GetTelemetry(uint32_t *sent, uint32_t *fails);
 
 #ifdef __cplusplus
 }

@@ -13,11 +13,6 @@
 #include <stdint.h>
 #include <string.h>
 
-/* Telemetry counters live in main.c (touched by Touch_StreamFrame).
- * protocol_task.c only reads them when handling GetTelemetry. */
-extern volatile uint32_t s_streamingEventsSent;
-extern volatile uint32_t s_streamingTxFails;
-
 /* Worst-case sizes for v2.
  *
  *   Incoming Frame{Request}: request_id (5) + oneof tag (1) +
@@ -73,8 +68,11 @@ static void fill_get_uptime_response(touchforce_v1_Response *resp)
 static void fill_get_telemetry_response(touchforce_v1_Response *resp)
 {
   resp->which_payload = touchforce_v1_Response_get_telemetry_tag;
-  resp->payload.get_telemetry.streaming_events_sent = s_streamingEventsSent;
-  resp->payload.get_telemetry.streaming_tx_fails    = s_streamingTxFails;
+  uint32_t sent  = 0U;
+  uint32_t fails = 0U;
+  Touch_GetTelemetry(&sent, &fails);
+  resp->payload.get_telemetry.streaming_events_sent = sent;
+  resp->payload.get_telemetry.streaming_tx_fails    = fails;
 }
 
 static void fill_error_response(touchforce_v1_Response *resp,

@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>touchforce.v1 test harness</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      padding: 2rem 1rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                   Helvetica, Arial, sans-serif;
+      font-size: 15px;
+      background: #f5f5f5;
+      color: #1a1a1a;
+    }
+
+    .page {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 1.4rem;
+      font-weight: 600;
+      margin: 0 0 1.25rem;
+      letter-spacing: -0.01em;
+    }
+
+    /* ---- banners ---- */
+    .banner {
+      padding: 0.65rem 0.9rem;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+    .banner-warn {
+      background: #fff3cd;
+      border: 1px solid #ffe08a;
+      color: #7a5700;
+    }
+    .hidden { display: none; }
+
+    /* ---- controls ---- */
+    .controls {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.75rem;
+    }
+
+    button {
+      padding: 0.45rem 1.1rem;
+      border: none;
+      border-radius: 5px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      font-family: inherit;
+      transition: opacity 0.1s;
+    }
+    button:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+    button.primary {
+      background: #2563eb;
+      color: #fff;
+    }
+    button.primary:not(:disabled):hover { background: #1d4ed8; }
+    button.secondary {
+      background: #e5e7eb;
+      color: #1a1a1a;
+    }
+    button.secondary:not(:disabled):hover { background: #d1d5db; }
+    button.danger {
+      background: #dc2626;
+      color: #fff;
+    }
+    button.danger:not(:disabled):hover { background: #b91c1c; }
+
+    .status-line {
+      font-size: 0.85rem;
+      color: #555;
+    }
+    .status-line.connected { color: #16a34a; font-weight: 500; }
+    .status-line.error     { color: #dc2626; }
+
+    /* ---- log ---- */
+    .log-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: #888;
+      margin-bottom: 0.35rem;
+    }
+
+    #log {
+      background: #0f172a;
+      color: #e2e8f0;
+      font-family: "SF Mono", "Fira Mono", "Cascadia Code", "Consolas",
+                   "Menlo", monospace;
+      font-size: 0.82rem;
+      line-height: 1.6;
+      white-space: pre;
+      overflow-x: auto;
+      border-radius: 8px;
+      padding: 0.9rem 1rem;
+      min-height: 180px;
+      max-height: 480px;
+      overflow-y: auto;
+    }
+
+    #log .log-err  { color: #f87171; }
+    #log .log-send { color: #93c5fd; }
+    #log .log-recv { color: #86efac; }
+    #log .log-info { color: #fbbf24; }
+  </style>
+</head>
+<body>
+<div class="page">
+  <h1>touchforce.v1 test harness</h1>
+
+  <!-- Web Serial availability banner -->
+  <div id="no-serial-banner" class="banner banner-warn hidden">
+    Web Serial not available — open this page in Chrome or Edge on desktop.
+    Firefox and Safari don't support the Web Serial API.
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button id="btn-connect"    class="primary"   >Connect</button>
+    <button id="btn-disconnect" class="danger"    disabled>Disconnect</button>
+    <button id="btn-uptime"     class="secondary" disabled>Get Uptime</button>
+  </div>
+
+  <div id="status-line" class="status-line">Not connected</div>
+
+  <!-- Log -->
+  <div class="log-label" style="margin-top:1.25rem;">Log</div>
+  <div id="log"></div>
+</div>
+
+<!-- protobufjs full build for runtime proto parsing -->
+<script src="https://cdn.jsdelivr.net/npm/protobufjs@7/dist/protobuf.min.js"></script>
+<script>
+"use strict";
+
+// ---------------------------------------------------------------------------
+// Inlined proto schema — kept in sync manually with protocol/touch_force.proto
+// ---------------------------------------------------------------------------
+const schemaText = `syntax = "proto3";
+
+package touchforce.v1;
+
+// Top-level wrapper for every host -> MCU message.
+//
+// Conventions (locked in by 2026-05-06 design spec):
+//   - request_id: opaque uint32 chosen by the host, echoed by the MCU
+//     in Response.request_id. SHOULD be non-zero (proto3 elides
+//     zero defaults on the wire, so 0 is indistinguishable from
+//     "unset").
+//   - Field 2 in both Request and Response is reserved across the
+//     whole protocol for Response.error, so command oneof slots
+//     start at field 3 with parallel numbers across Request/Response.
+message Request {
+  uint32 request_id = 1;
+  // field 2 reserved for symmetry with Response.error
+  oneof payload {
+    GetUptimeRequest get_uptime = 3;
+  }
+}
+
+// Top-level wrapper for every MCU -> host message (in v1, only
+// solicited responses; future versions may add an Event sibling).
+message Response {
+  uint32 request_id = 1;
+  oneof payload {
+    ErrorResponse     error      = 2;
+    GetUptimeResponse get_uptime = 3;
+  }
+}
+
+message ErrorResponse {
+  uint32 code    = 1;
+  string message = 2;
+}
+
+message GetUptimeRequest  {}
+
+message GetUptimeResponse {
+  // Milliseconds since MCU boot (HAL_GetTick wraps at ~49.7 days,
+  // documented in protocol/README.md).
+  uint32 uptime_ms = 1;
+}
+`;
+
+// ---------------------------------------------------------------------------
+// Protobuf setup
+// ---------------------------------------------------------------------------
+let RequestType, ResponseType;
+try {
+  const root = protobuf.parse(schemaText, { keepCase: false }).root;
+  RequestType  = root.lookupType("touchforce.v1.Request");
+  ResponseType = root.lookupType("touchforce.v1.Response");
+} catch (e) {
+  logErr("Failed to parse proto schema: " + e.message);
+}
+
+// ---------------------------------------------------------------------------
+// COBS encode / decode — ported verbatim from host/touch_force_cli/link.py
+// ---------------------------------------------------------------------------
+
+class FramingError extends Error {
+  constructor(msg) { super(msg); this.name = "FramingError"; }
+}
+
+/**
+ * COBS-encode data (Uint8Array). Output never contains 0x00.
+ * Port of cobs_encode() from link.py.
+ */
+function cobsEncode(data) {
+  const out = [];
+  // Reserve slot for leading overhead byte; patched at end of each segment.
+  out.push(0);
+  let codeIndex = 0;
+  let code = 1; // number of bytes in current segment + 1
+
+  for (const byte of data) {
+    if (byte === 0) {
+      out[codeIndex] = code;
+      codeIndex = out.length;
+      out.push(0); // placeholder for next segment's code
+      code = 1;
+    } else {
+      out.push(byte);
+      code += 1;
+      if (code === 0xFF) {
+        // Segment is full; close it and open a new one.
+        out[codeIndex] = code;
+        codeIndex = out.length;
+        out.push(0);
+        code = 1;
+      }
+    }
+  }
+
+  out[codeIndex] = code;
+  return new Uint8Array(out);
+}
+
+/**
+ * COBS-decode data (Uint8Array). Throws FramingError on malformed input.
+ * Port of cobs_decode() from link.py.
+ */
+function cobsDecode(data) {
+  if (data.length === 0) {
+    throw new FramingError("empty COBS frame");
+  }
+  for (const b of data) {
+    if (b === 0) throw new FramingError("COBS payload must not contain 0x00");
+  }
+
+  const out = [];
+  let i = 0;
+  const n = data.length;
+  while (i < n) {
+    const code = data[i];
+    if (code === 0) {
+      throw new FramingError("zero code byte inside COBS frame");
+    }
+    const end = i + code;
+    if (end > n) {
+      throw new FramingError("COBS code byte points past end of frame");
+    }
+    for (let j = i + 1; j < end; j++) out.push(data[j]);
+    i = end;
+    if (code !== 0xFF && i < n) {
+      out.push(0);
+    }
+  }
+  return new Uint8Array(out);
+}
+
+// ---------------------------------------------------------------------------
+// UI helpers
+// ---------------------------------------------------------------------------
+const logEl        = document.getElementById("log");
+const statusEl     = document.getElementById("status-line");
+const btnConnect   = document.getElementById("btn-connect");
+const btnDisconnect= document.getElementById("btn-disconnect");
+const btnUptime    = document.getElementById("btn-uptime");
+
+function ts() {
+  const d = new Date();
+  const pad = (n, w=2) => String(n).padStart(w, "0");
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
+}
+
+function appendLog(text, cls) {
+  const span = document.createElement("span");
+  if (cls) span.className = cls;
+  span.textContent = text + "\n";
+  logEl.appendChild(span);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function logSend(msg) { appendLog(`${ts()}  → ${msg}`, "log-send"); }
+function logRecv(msg) { appendLog(`${ts()}  ← ${msg}`, "log-recv"); }
+function logInfo(msg) { appendLog(`${ts()}  · ${msg}`, "log-info"); }
+function logErr(msg)  { appendLog(`${ts()}  ✕ ${msg}`, "log-err");  }
+
+function setStatus(text, cls) {
+  statusEl.textContent = text;
+  statusEl.className   = "status-line" + (cls ? " " + cls : "");
+}
+
+// ---------------------------------------------------------------------------
+// Web Serial availability check
+// ---------------------------------------------------------------------------
+if (!navigator.serial) {
+  document.getElementById("no-serial-banner").classList.remove("hidden");
+  btnConnect.disabled = true;
+  setStatus("Web Serial unavailable", "error");
+}
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+let port     = null;
+let isOpen   = false;
+let requestCounter = 0;
+
+function nextRequestId() { return ++requestCounter; }
+
+// ---------------------------------------------------------------------------
+// Connect / Disconnect
+// ---------------------------------------------------------------------------
+
+// Open an already-acquired SerialPort and switch the UI to "connected" state.
+// Used by both the manual Connect button and the on-load auto-reconnect path.
+async function openPort(p) {
+  await p.open({ baudRate: 115200 });
+  port   = p;
+  isOpen = true;
+
+  btnConnect.classList.remove("primary");
+  btnConnect.classList.add("secondary");
+  btnConnect.textContent = "Connected";
+  btnConnect.disabled    = true;
+  btnDisconnect.disabled = false;
+  btnUptime.disabled     = false;
+
+  setStatus("Connected", "connected");
+  logInfo("Port opened at 115200 baud");
+
+  port.addEventListener("disconnect", onPortDisconnect);
+}
+
+btnConnect.addEventListener("click", async () => {
+  btnConnect.textContent = "Connecting…";
+  btnConnect.disabled    = true;
+  setStatus("Connecting…");
+
+  try {
+    const p = await navigator.serial.requestPort();
+    await openPort(p);
+  } catch (e) {
+    btnConnect.textContent = "Connect";
+    btnConnect.disabled    = false;
+    setStatus("Not connected");
+    if (e.name !== "NotFoundError") {   // user cancelled — no need to log
+      logErr("Connect failed: " + e.message);
+      setStatus("Connection error", "error");
+    }
+  }
+});
+
+// On page load, try to reopen any previously-authorized port silently.
+// getPorts() returns ports the user has already granted access to, so it
+// doesn't need a user gesture and won't show the picker.
+async function tryAutoConnect() {
+  if (!navigator.serial) return;
+  const ports = await navigator.serial.getPorts();
+  if (ports.length === 0) return;
+  // If the user previously authorized multiple ports, just take the first.
+  // They can disconnect and re-connect via the picker to choose another.
+  try {
+    await openPort(ports[0]);
+    logInfo("Auto-reconnected to previously authorized port");
+  } catch (e) {
+    logErr("Auto-reconnect failed: " + e.message);
+  }
+}
+
+tryAutoConnect();
+
+btnDisconnect.addEventListener("click", async () => {
+  await doDisconnect("User disconnected");
+});
+
+async function doDisconnect(reason) {
+  if (!port) return;
+  try {
+    // Release any lingering locks before close.
+    if (port.readable && port.readable.locked) {
+      try { await port.readable.cancel(); } catch (_) {}
+    }
+    if (port.writable && port.writable.locked) {
+      try { await port.writable.abort(); } catch (_) {}
+    }
+    await port.close();
+  } catch (e) {
+    // Ignore close errors — device may already be gone.
+  }
+  port   = null;
+  isOpen = false;
+
+  btnConnect.textContent = "Connect";
+  btnConnect.classList.remove("secondary");
+  btnConnect.classList.add("primary");
+  btnConnect.disabled    = false;
+  btnDisconnect.disabled = true;
+  btnUptime.disabled     = true;
+
+  setStatus("Not connected");
+  logInfo(reason || "Disconnected");
+}
+
+function onPortDisconnect() {
+  if (!isOpen) return;
+  isOpen = false;
+  logErr("Device disconnected unexpectedly");
+  doDisconnect("Device removed");
+}
+
+// ---------------------------------------------------------------------------
+// Get Uptime
+// ---------------------------------------------------------------------------
+btnUptime.addEventListener("click", async () => {
+  if (!isOpen || !port) return;
+
+  const rid = nextRequestId();
+
+  // --- encode request ---
+  const reqMsg = RequestType.create({
+    requestId: rid,
+    getUptime: {},
+  });
+  const reqBytes  = RequestType.encode(reqMsg).finish();
+  const cobsFrame = cobsEncode(reqBytes);
+
+  // Frame = COBS payload + 0x00 delimiter
+  const wireBytes = new Uint8Array(cobsFrame.length + 1);
+  wireBytes.set(cobsFrame);
+  wireBytes[cobsFrame.length] = 0x00;
+
+  logSend(`GetUptimeRequest (request_id=${rid})`);
+
+  btnUptime.disabled = true;
+  try {
+    // --- write ---
+    const writer = port.writable.getWriter();
+    try {
+      await writer.write(wireBytes);
+    } finally {
+      writer.releaseLock();
+    }
+
+    // --- read until 0x00 ---
+    const reader = port.readable.getReader();
+    const rawBuf = [];
+    try {
+      outer: while (true) {
+        const { value, done } = await reader.read();
+        if (done) throw new Error("Port closed while reading response");
+        for (const b of value) {
+          if (b === 0x00) {
+            if (rawBuf.length > 0) break outer;
+            // Leading delimiter from a previous frame — skip.
+          } else {
+            rawBuf.push(b);
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+
+    // --- COBS decode ---
+    const decoded = cobsDecode(new Uint8Array(rawBuf));
+
+    // --- protobuf decode ---
+    const resp = ResponseType.decode(decoded);
+
+    // --- validate request_id echo ---
+    const gotRid = resp.requestId >>> 0; // uint32 coercion
+    if (gotRid !== rid) {
+      throw new Error(`request_id mismatch: sent ${rid}, got ${gotRid}`);
+    }
+
+    // --- check payload ---
+    if (resp.payload === "error") {
+      const code = resp.error.code >>> 0;
+      const msg  = resp.error.message || "";
+      throw new Error(`RemoteError code=${code}: ${msg}`);
+    }
+    if (resp.payload === "getUptime") {
+      const uptimeMs = resp.getUptime.uptimeMs >>> 0;
+      logRecv(`uptime: ${uptimeMs} ms (request_id=${gotRid})`);
+    } else {
+      throw new Error(`Unexpected response payload: "${resp.payload}"`);
+    }
+
+  } catch (e) {
+    logErr(e.message || String(e));
+    if (e.name === "FramingError") {
+      logErr("Framing error — the device may have sent a malformed frame.");
+    }
+    // If port is gone, clean up.
+    if (!port || !port.readable) {
+      await doDisconnect("Port lost during request");
+    }
+  } finally {
+    if (isOpen) btnUptime.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

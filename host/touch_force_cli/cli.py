@@ -1,0 +1,65 @@
+"""Command-line interface for the touchforce.v1 protocol.
+
+Usage:
+
+    uv run python -m touch_force_cli get-uptime --port /dev/cu.usbmodem...
+
+The single subcommand opens the serial port, sends a GetUptime
+request, and prints the result in milliseconds.
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+
+import serial  # pyserial
+
+from touch_force_cli.link import Link, ProtocolError, RemoteError
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="touch_force_cli")
+    p.add_argument(
+        "--port",
+        required=True,
+        help="serial device path, e.g. /dev/cu.usbmodemXXXX",
+    )
+    p.add_argument(
+        "--baud",
+        type=int,
+        default=115200,
+        help="baud rate (USB CDC ignores this but pyserial requires a value)",
+    )
+    p.add_argument(
+        "--timeout",
+        type=float,
+        default=2.0,
+        help="per-read timeout in seconds (default: 2.0)",
+    )
+    sub = p.add_subparsers(dest="command", required=True)
+    sub.add_parser("get-uptime", help="ask the MCU for its uptime in ms")
+    return p
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = _build_parser().parse_args(argv)
+    with serial.Serial(args.port, args.baud, timeout=args.timeout) as ser:
+        lnk = Link(ser)
+        if args.command == "get-uptime":
+            try:
+                ms = lnk.get_uptime()
+            except RemoteError as e:
+                print(f"MCU returned error: {e}", file=sys.stderr)
+                return 2
+            except ProtocolError as e:
+                print(f"protocol error: {e}", file=sys.stderr)
+                return 3
+            print(f"uptime: {ms} ms")
+            return 0
+        # argparse with required=True ensures we never reach here.
+        raise AssertionError(f"unhandled command: {args.command!r}")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

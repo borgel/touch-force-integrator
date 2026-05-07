@@ -11,6 +11,10 @@
 #include "stm32h7s78_discovery_lcd.h"
 #include "usbh_hid_wisecoco.h"
 #include "protocol_task.h"
+#include "cobs.h"
+#include "pb_encode.h"
+#include "touch_force.pb.h"
+#include "usbd_def.h"  /* USBD_OK */
 
 #include <stdio.h>
 #include <string.h>
@@ -374,6 +378,67 @@ static void Touch_RenderToLCD(const struct USBH_LatestWisecocoData *snapshot)
   BSP_LCD_SwapDrawBuffer(0, BSP_LCD_LAYER_FOREGROUND);
 }
 
+/* Build a Frame{Event{TouchFrameEvent}} from snap, encode it via
+ * nanopb into s_eventBuf, COBS-encode that into s_eventTxBuf with
+ * a trailing 0x00, and CDC_Write it with a 5ms timeout. Drops on
+ * any non-OK status (host slow / disconnected / encode bug) and
+ * bumps the corresponding counter so GetTelemetry can report it. */
+static void Touch_StreamFrame(const struct USBH_LatestWisecocoData *snap)
+{
+  touchforce_v1_Frame frame = touchforce_v1_Frame_init_zero;
+  frame.which_kind = touchforce_v1_Frame_event_tag;
+
+  touchforce_v1_Event *event = &frame.kind.event;
+  event->which_payload = touchforce_v1_Event_touch_frame_tag;
+
+  touchforce_v1_TouchFrameEvent *tfe = &event->payload.touch_frame;
+  tfe->live_touches      = (uint32_t)snap->liveTouches;
+  tfe->tips_touched_down = (uint32_t)snap->tipsTouchedDown;
+
+  pb_size_t fc = (pb_size_t)snap->liveTouches;
+  if (fc > (pb_size_t)10U) {
+    fc = (pb_size_t)10U;
+  }
+  tfe->fingers_count = fc;
+  for (pb_size_t i = 0U; i < fc; i++) {
+    const struct USBH_WCSingleFinger *f = &snap->fingers[i];
+    touchforce_v1_TouchFinger *tf = &tfe->fingers[i];
+    tf->id             = (uint32_t)f->id;
+    tf->touching       = f->touching;
+    tf->x              = (uint32_t)f->x;
+    tf->y              = (uint32_t)f->y;
+    tf->patch_width    = (uint32_t)f->patchWidth;
+    tf->patch_height   = (uint32_t)f->patchHeight;
+    tf->touch_duration = (uint32_t)f->touchDuration;
+  }
+
+  pb_ostream_t os = pb_ostream_from_buffer(s_eventBuf, sizeof(s_eventBuf));
+  if (!pb_encode(&os, touchforce_v1_Frame_fields, &frame)) {
+    /* Encoder hit a logic bug or insufficient buffer. The buffer
+     * is sized from Frame_size + slack, so this should be a hard
+     * sizing-bug signal — count it and drop. */
+    s_streamingTxFails++;
+    return;
+  }
+
+  cobs_encode_result enc = cobs_encode(s_eventTxBuf, sizeof(s_eventTxBuf) - 1U,
+                                        s_eventBuf, os.bytes_written);
+  if (enc.status != COBS_ENCODE_OK) {
+    s_streamingTxFails++;
+    return;
+  }
+  s_eventTxBuf[enc.out_len] = 0x00U;
+
+  uint8_t result = CDC_Write(s_eventTxBuf,
+                             (uint16_t)(enc.out_len + 1U),
+                             5U);  /* non-blocking-ish: drop on busy */
+  if (result == USBD_OK) {
+    s_streamingEventsSent++;
+  } else {
+    s_streamingTxFails++;
+  }
+}
+
 void _Touch_Task(void *argument)
 {
   (void)argument;
@@ -444,7 +509,9 @@ void _Touch_Task(void *argument)
       continue;
     }
     Touch_RenderToLCD(&snapshot);
-    // Touch_StreamFrame() call added in Task 2.3
+    if (s_streaming_enabled) {
+      Touch_StreamFrame(&snapshot);
+    }
   }
 }
 

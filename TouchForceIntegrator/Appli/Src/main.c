@@ -91,16 +91,16 @@ static SemaphoreHandle_t s_vblankSem;
  * static.
  *
  * Concurrency:
- *   - .enabled       — written by _CDC_Task via Touch_SetStreaming,
- *                      read by _Touch_Task. Single-byte volatile
- *                      access is atomic on Cortex-M.
- *   - .events_sent / .tx_fails — written by _Touch_Task in
- *                      Touch_StreamFrame, read by _CDC_Task via
- *                      Touch_GetTelemetry. Reads may be torn for a
- *                      few microseconds; harmless for monotonic
- *                      counters.
- *   - .event_buf / .event_tx_buf — only touched by _Touch_Task
- *                      inside Touch_StreamFrame, no contention.
+ *   - .enabled      — written by _CDC_Task via Touch_SetStreaming,
+ *                     read by _Touch_Task. Single-byte volatile
+ *                     access is atomic on Cortex-M.
+ *   - .eventsSent / .txFails — written by _Touch_Task in
+ *                     Touch_StreamFrame, read by _CDC_Task via
+ *                     Touch_GetTelemetry. Reads may be torn for a
+ *                     few microseconds; harmless for monotonic
+ *                     counters.
+ *   - .eventBuf / .eventTxBuf — only touched by _Touch_Task inside
+ *                     Touch_StreamFrame, no contention.
  *
  * Buffer sizes are derived from touchforce_v1_Frame_size (worst-case
  * encoded Frame carrying a TouchFrameEvent with 10 fingers, currently
@@ -111,10 +111,10 @@ static SemaphoreHandle_t s_vblankSem;
 
 static struct {
   volatile bool     enabled;
-  volatile uint32_t events_sent;
-  volatile uint32_t tx_fails;
-  uint8_t           event_buf[PROTO_EVENT_BUF_BYTES];
-  uint8_t           event_tx_buf[PROTO_EVENT_TX_BYTES];
+  volatile uint32_t eventsSent;
+  volatile uint32_t txFails;
+  uint8_t           eventBuf[PROTO_EVENT_BUF_BYTES];
+  uint8_t           eventTxBuf[PROTO_EVENT_TX_BYTES];
 } s_streaming = {
   .enabled = true,
 };
@@ -274,7 +274,7 @@ static void Touch_RenderToLCD(const struct USBH_LatestWisecocoData *snapshot)
 }
 
 /* Build a Frame{Event{TouchFrameEvent}} from snap, encode it via
- * nanopb into s_streaming.event_buf, COBS-encode that into s_streaming.event_tx_buf with
+ * nanopb into s_streaming.eventBuf, COBS-encode that into s_streaming.eventTxBuf with
  * a trailing 0x00, and CDC_Write it with a 5ms timeout. Drops on
  * any non-OK status (host slow / disconnected / encode bug) and
  * bumps the corresponding counter so GetTelemetry can report it. */
@@ -307,30 +307,30 @@ static void Touch_StreamFrame(const struct USBH_LatestWisecocoData *snap)
     tf->touch_duration = (uint32_t)f->touchDuration;
   }
 
-  pb_ostream_t os = pb_ostream_from_buffer(s_streaming.event_buf, sizeof(s_streaming.event_buf));
+  pb_ostream_t os = pb_ostream_from_buffer(s_streaming.eventBuf, sizeof(s_streaming.eventBuf));
   if (!pb_encode(&os, touchforce_v1_Frame_fields, &frame)) {
     /* Encoder hit a logic bug or insufficient buffer. The buffer
      * is sized from Frame_size + slack, so this should be a hard
      * sizing-bug signal — count it and drop. */
-    s_streaming.tx_fails++;
+    s_streaming.txFails++;
     return;
   }
 
-  cobs_encode_result enc = cobs_encode(s_streaming.event_tx_buf, sizeof(s_streaming.event_tx_buf) - 1U,
-                                        s_streaming.event_buf, os.bytes_written);
+  cobs_encode_result enc = cobs_encode(s_streaming.eventTxBuf, sizeof(s_streaming.eventTxBuf) - 1U,
+                                        s_streaming.eventBuf, os.bytes_written);
   if (enc.status != COBS_ENCODE_OK) {
-    s_streaming.tx_fails++;
+    s_streaming.txFails++;
     return;
   }
-  s_streaming.event_tx_buf[enc.out_len] = 0x00U;
+  s_streaming.eventTxBuf[enc.out_len] = 0x00U;
 
-  uint8_t result = CDC_Write(s_streaming.event_tx_buf,
+  uint8_t result = CDC_Write(s_streaming.eventTxBuf,
                              (uint16_t)(enc.out_len + 1U),
                              5U);  /* non-blocking-ish: drop on busy */
   if (result == USBD_OK) {
-    s_streaming.events_sent++;
+    s_streaming.eventsSent++;
   } else {
-    s_streaming.tx_fails++;
+    s_streaming.txFails++;
   }
 }
 
@@ -462,8 +462,8 @@ void Touch_SetStreaming(bool enabled)
  * for monotonic counters. */
 void Touch_GetTelemetry(uint32_t *sent, uint32_t *fails)
 {
-  *sent  = s_streaming.events_sent;
-  *fails = s_streaming.tx_fails;
+  *sent  = s_streaming.eventsSent;
+  *fails = s_streaming.txFails;
 }
 
 static void MX_GPDMA1_Init(void)

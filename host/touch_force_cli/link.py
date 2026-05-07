@@ -231,3 +231,23 @@ class Link:
                 resp.get_telemetry.streaming_tx_fails,
             )
         raise ProtocolError(f"unexpected response payload: {which!r}")
+
+    def read_events(self):
+        """Generator yielding Event messages forever (or until EOF).
+
+        Responses encountered with no pending request are discarded —
+        the CLI use case for `read_events` is one-directional event
+        consumption (`stream-touches` subcommand). For interleaved
+        request/response + event handling, the webapp uses a
+        request_id-keyed pending-promise map instead.
+        """
+        while True:
+            raw = read_frame(self._t)
+            if raw is None:
+                return
+            frame = _pb.Frame()
+            frame.ParseFromString(raw)
+            kind = frame.WhichOneof("kind")
+            if kind == "event":
+                yield frame.event
+            # else: discard (Response with no pending request, or unexpected)

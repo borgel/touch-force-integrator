@@ -209,3 +209,55 @@ def test_link_get_telemetry_round_trip() -> None:
     out_frame.ParseFromString(decoded)
     assert out_frame.WhichOneof("kind") == "request"
     assert out_frame.request.WhichOneof("payload") == "get_telemetry"
+
+
+# ---------------------------------------------------------------------------
+# Link.read_events generator
+# ---------------------------------------------------------------------------
+
+def _encoded_event_touch_frame(*, live: int, down: int,
+                                fingers: list[tuple[int, bool, int, int]]) -> bytes:
+    """Build wire bytes for a Frame{event: TouchFrameEvent{...}}."""
+    frame = pb.Frame()
+    frame.event.touch_frame.live_touches = live
+    frame.event.touch_frame.tips_touched_down = down
+    for fid, touching, x, y in fingers:
+        f = frame.event.touch_frame.fingers.add()
+        f.id = fid
+        f.touching = touching
+        f.x = x
+        f.y = y
+    return link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+
+def test_link_read_events_yields_events_and_skips_responses() -> None:
+    # Mix: one event, one stale response, one event.
+    e1 = _encoded_event_touch_frame(
+        live=1, down=1, fingers=[(0, True, 100, 200)]
+    )
+    e2 = _encoded_event_touch_frame(
+        live=2, down=2, fingers=[(0, True, 100, 200), (1, True, 300, 400)]
+    )
+    stale_resp = _encoded_response(request_id=999, uptime_ms=42)
+
+    t = _LoopTransport(e1 + stale_resp + e2)
+    lnk = link.Link(t)
+
+    events = []
+    for event in lnk.read_events():
+        events.append(event)
+        if len(events) == 2:
+            break
+
+    assert len(events) == 2
+    assert events[0].WhichOneof("payload") == "touch_frame"
+    assert events[0].touch_frame.live_touches == 1
+    assert events[1].touch_frame.live_touches == 2
+
+
+def test_link_read_events_returns_at_eof() -> None:
+    # Empty transport: generator should terminate cleanly.
+    t = _LoopTransport(b"")
+    lnk = link.Link(t)
+    events = list(lnk.read_events())
+    assert events == []

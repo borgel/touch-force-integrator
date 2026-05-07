@@ -75,9 +75,14 @@ def main(argv: list[str] | None = None) -> int:
             print(f"tx fails:    {fails}  ({rate:.3f}%)")
             return 0
         if args.command == "stream-touches":
-            # SetTouchStreaming(true) is technically redundant — the firmware
-            # boots with streaming on — but sending it makes the command's
-            # intent self-evident in protocol-trace logs.
+            # Streaming consumers want to wait indefinitely for the next
+            # event; the 2s default timeout would make read_frame() return
+            # None whenever the user pauses touching, terminating the
+            # generator and looking like the program crashed.
+            ser.timeout = None
+            # Send SetTouchStreaming(true) regardless of state — guarantees
+            # streaming is on even after a prior session left it disabled
+            # via Ctrl-C cleanup.
             lnk.set_touch_streaming(enabled=True)
             try:
                 for event in lnk.read_events():

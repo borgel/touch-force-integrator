@@ -19,7 +19,14 @@ extern "C" {
 
 #include "stm32h7rsxx_ll_exti.h"
 
+#include <stdbool.h>
+
 void Error_Handler(void);
+
+/* Defined in main.c — toggles the touchforce.v1 touch event
+ * streamer. Called from protocol_task.c on a SetTouchStreaming
+ * request. Default state at boot is enabled. */
+void Touch_SetStreaming(bool enabled);
 
 #ifdef __cplusplus
 }

@@ -43,9 +43,9 @@ const osThreadAttr_t CDC_Task_attributes = {
     .priority = (osPriority_t) osPriorityNormal,
 };
 
-osThreadId_t Render_TaskHandle;
-const osThreadAttr_t Render_Task_attributes = {
-    .name = "Render_Task",
+osThreadId_t Touch_TaskHandle;
+const osThreadAttr_t Touch_Task_attributes = {
+    .name = "Touch_Task",
     .stack_size = 512 * 4,
     .priority = (osPriority_t) osPriorityNormal,
 };
@@ -56,7 +56,7 @@ static void MX_UART4_Init(void);
 static void MX_UCPD1_Init(void);
 void _USB_Task(void *argument);
 void _CDC_Task(void *argument);
-void _Render_Task(void *argument);
+void _Touch_Task(void *argument);
 
 #if defined(__ICCARM__)
 /* New definition from EWARM V9, compatible with EWARM8 */
@@ -81,6 +81,23 @@ size_t __write(int file, unsigned char const *ptr, size_t len);
  */
 static StaticSemaphore_t s_vblankSemMeta;
 static SemaphoreHandle_t s_vblankSem;
+
+/* touchforce.v1 streaming state. Read by _Touch_Task, written by
+ * _CDC_Task via Touch_SetStreaming(). volatile bool is atomic on
+ * Cortex-M for single-byte loads/stores; no mutex needed. */
+static volatile bool     s_streaming_enabled    = true;
+static volatile uint32_t s_streamingEventsSent  = 0;
+static volatile uint32_t s_streamingTxFails     = 0;
+
+/* TX buffers for Touch_StreamFrame. Sized from the generated
+ * touchforce_v1_Frame_size constant (worst-case encoded Frame
+ * carrying a TouchFrameEvent with 10 fingers, currently 418
+ * bytes) plus COBS overhead and the 0x00 delimiter. 512 covers
+ * the worst case with margin. */
+#define PROTO_EVENT_BUF_BYTES   512U
+#define PROTO_EVENT_TX_BYTES    512U
+static uint8_t s_eventBuf[PROTO_EVENT_BUF_BYTES];
+static uint8_t s_eventTxBuf[PROTO_EVENT_TX_BYTES];
 
 void HAL_LTDC_LineEventCallback(LTDC_HandleTypeDef *hltdc)
 {
@@ -121,7 +138,7 @@ int main(void)
 
   USB_TaskHandle    = osThreadNew(_USB_Task,    NULL, &USB_Task_attributes);
   CDC_TaskHandle    = osThreadNew(_CDC_Task,    NULL, &CDC_Task_attributes);
-  Render_TaskHandle = osThreadNew(_Render_Task, NULL, &Render_Task_attributes);
+  Touch_TaskHandle = osThreadNew(_Touch_Task, NULL, &Touch_Task_attributes);
 
   osKernelStart();
 
@@ -314,7 +331,7 @@ void _USB_Task(void *argument)
  * background on layer 0, animated dots on layer 1 with color keying
  * for transparency), then waits on the wisecoco frame-published
  * semaphore and redraws on each new frame. */
-void _Render_Task(void *argument)
+void _Touch_Task(void *argument)
 {
   (void)argument;
   int res;
@@ -439,6 +456,13 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   if (htim->Instance == TIM6) {
     HAL_IncTick();
   }
+}
+
+/* Toggle touch streaming. Called from the protocol_task.c dispatch
+ * for SetTouchStreaming. Single byte write, atomic on Cortex-M. */
+void Touch_SetStreaming(bool enabled)
+{
+  s_streaming_enabled = enabled;
 }
 
 void Error_Handler(void)

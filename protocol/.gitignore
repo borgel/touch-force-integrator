@@ -1,0 +1,3 @@
+# generator staging output; the canonical copies live in the
+# firmware and host trees and are committed there.
+generated/

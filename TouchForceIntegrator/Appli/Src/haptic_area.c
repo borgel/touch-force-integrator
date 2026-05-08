@@ -89,7 +89,6 @@ void HapticArea_Init(void)
   RCC_OscInitTypeDef oscInit = {0};
   oscInit.OscillatorType = RCC_OSCILLATORTYPE_HSI48;
   oscInit.HSI48State     = RCC_HSI48_ON;
-  oscInit.PLL.PLLState   = RCC_PLL_NONE;  /* don't reconfigure PLLs */
   if (HAL_RCC_OscConfig(&oscInit) != HAL_OK) {
     Error_Handler();
   }

@@ -600,7 +600,7 @@ static void Touch_InitLCD(void)
 static void Haptic_LedTimerCallback(TimerHandle_t xTimer)
 {
   (void)xTimer;
-  BSP_LED_Off(LED1);
+  BSP_LED_Off(LD1);
 }
 
 /* Async fire: drives LD1 on, (re)starts the 100 ms one-shot
@@ -612,7 +612,7 @@ static void Haptic_Fire(touchforce_v1_HapticEffect effect)
   if (effect != touchforce_v1_HapticEffect_HAPTIC_EFFECT_DEFAULT) {
     return;  /* unspecified or unknown effect: no fire */
   }
-  BSP_LED_On(LED1);
+  BSP_LED_On(LD1);
   /* xTimerReset both starts the timer (if stopped) and resets
    * its countdown (if running). 0-tick block since we're in a
    * task context. */
@@ -624,7 +624,7 @@ void _Touch_Task(void *argument)
   (void)argument;
   Touch_InitLCD();
 
-  BSP_LED_Init(LED1);
+  BSP_LED_Init(LD1);
   s_ledTimer = xTimerCreateStatic(
       "led-pulse",
       pdMS_TO_TICKS(100),     /* one-shot 100 ms */

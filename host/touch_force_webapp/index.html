@@ -150,6 +150,7 @@
     <button id="btn-telemetry"  class="primary"   disabled>Get Telemetry</button>
     <button id="addAreaButton"  class="secondary" disabled>Add area: OFF</button>
     <button id="hapticModeButton" class="secondary" disabled>Haptic mode: ?</button>
+    <button id="clearAllAreasButton" class="danger" disabled>Clear all areas</button>
   </div>
 
   <div id="status-line" class="status-line">Not connected</div>
@@ -459,8 +460,9 @@ const btnDisconnect  = document.getElementById("btn-disconnect");
 const btnUptime      = document.getElementById("btn-uptime");
 const btnStream      = document.getElementById("btn-stream");
 const btnTelemetry   = document.getElementById("btn-telemetry");
-const btnAddArea     = document.getElementById("addAreaButton");
-const btnHapticMode  = document.getElementById("hapticModeButton");
+const btnAddArea          = document.getElementById("addAreaButton");
+const btnHapticMode       = document.getElementById("hapticModeButton");
+const btnClearAllAreas    = document.getElementById("clearAllAreasButton");
 
 function ts() {
   const d = new Date();
@@ -531,8 +533,9 @@ async function openPort(p) {
   btnUptime.disabled     = false;
   btnStream.disabled     = false;
   btnTelemetry.disabled  = false;
-  btnAddArea.disabled    = false;
-  btnHapticMode.disabled = false;
+  btnAddArea.disabled         = false;
+  btnHapticMode.disabled      = false;
+  btnClearAllAreas.disabled   = false;
 
   setStatus("Connected", "connected");
   logInfo("Port opened at 115200 baud");
@@ -720,8 +723,9 @@ async function doDisconnect(reason) {
   btnUptime.disabled     = true;
   btnStream.disabled     = true;
   btnTelemetry.disabled  = true;
-  btnAddArea.disabled    = true;
-  btnHapticMode.disabled = true;
+  btnAddArea.disabled         = true;
+  btnHapticMode.disabled      = true;
+  btnClearAllAreas.disabled   = true;
 
   setStatus("Not connected");
   logInfo(reason || "Disconnected");
@@ -821,6 +825,7 @@ async function refreshHapticAreas() {
       });
     }
   }
+  redrawCanvas();
 }
 
 function drawHapticAreasOverlay(ctx, canvas) {
@@ -926,12 +931,20 @@ function drawCanvas() {
   drawHapticAreasOverlay(ctx, canvas);
 }
 
+// Redraw the canvas using the latest cached frame and haptic-area map.
+// Called on every touch event and also any time hapticAreaMap changes
+// (e.g. after refreshHapticAreas or clear-all), so the overlay stays
+// current without waiting for the next finger landing.
+function redrawCanvas() {
+  drawCanvas();
+}
+
 // Wire the dispatcher's event handler. Each touch_frame event becomes
 // the new "lastFrame" and triggers a redraw.
 touchEventHandler = (event) => {
   if (event.payload !== "touchFrame") return;
   lastFrame = event.touchFrame;
-  drawCanvas();
+  redrawCanvas();
 };
 
 // ---- Canvas drag-to-add mouse handlers ------------------------------------
@@ -1007,6 +1020,20 @@ btnHapticMode.addEventListener("click", async () => {
     }
   } catch (err) {
     logErr("SetHapticAreaMode failed: " + err.message);
+  }
+});
+
+btnClearAllAreas.addEventListener("click", async () => {
+  try {
+    const resp = await sendRequest(() => ({ deleteAllHapticAreas: {} }));
+    if (resp.payload === "deleteAllHapticAreas") {
+      logInfo("← DeleteAllHapticAreas OK");
+      await refreshHapticAreas();
+    } else {
+      logErr(`Unexpected response to DeleteAllHapticAreas: ${resp.payload}`);
+    }
+  } catch (err) {
+    logErr("DeleteAllHapticAreas failed: " + err.message);
   }
 });
 

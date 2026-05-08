@@ -148,6 +148,8 @@
     <button id="btn-uptime"     class="secondary" disabled>Get Uptime</button>
     <button id="btn-stream"     class="secondary" disabled>Streaming: ON</button>
     <button id="btn-telemetry"  class="primary"   disabled>Get Telemetry</button>
+    <button id="addAreaButton"  class="secondary" disabled>Add area: OFF</button>
+    <button id="hapticModeButton" class="secondary" disabled>Haptic mode: ?</button>
   </div>
 
   <div id="status-line" class="status-line">Not connected</div>
@@ -201,9 +203,14 @@ message Request {
   uint32 request_id = 1;
   // field 2 reserved for Response.error symmetry
   oneof payload {
-    GetUptimeRequest         get_uptime          = 3;
-    SetTouchStreamingRequest set_touch_streaming = 4;
-    GetTelemetryRequest      get_telemetry       = 5;
+    GetUptimeRequest            get_uptime             = 3;
+    SetTouchStreamingRequest    set_touch_streaming    = 4;
+    GetTelemetryRequest         get_telemetry          = 5;
+    GetHapticAreaListRequest    get_haptic_area_list   = 6;
+    GetHapticAreaRequest        get_haptic_area        = 7;
+    SetHapticAreaRequest        set_haptic_area        = 8;
+    GetHapticAreaModeRequest    get_haptic_area_mode   = 9;
+    SetHapticAreaModeRequest    set_haptic_area_mode   = 10;
   }
 }
 
@@ -212,10 +219,15 @@ message Request {
 message Response {
   uint32 request_id = 1;
   oneof payload {
-    ErrorResponse        error         = 2;
-    GetUptimeResponse    get_uptime    = 3;
+    ErrorResponse               error                  = 2;
+    GetUptimeResponse           get_uptime             = 3;
     // 4: gap — set_touch_streaming is fire-and-forget
-    GetTelemetryResponse get_telemetry = 5;
+    GetTelemetryResponse        get_telemetry          = 5;
+    GetHapticAreaListResponse   get_haptic_area_list   = 6;
+    GetHapticAreaResponse       get_haptic_area        = 7;
+    SetHapticAreaResponse       set_haptic_area        = 8;
+    GetHapticAreaModeResponse   get_haptic_area_mode   = 9;
+    SetHapticAreaModeResponse   set_haptic_area_mode   = 10;
   }
 }
 
@@ -291,6 +303,52 @@ message TouchFinger {
   // Microseconds since this touch started (id was first seen).
   uint32 touch_duration = 7;
 }
+
+// ---- Haptic area types ----
+
+enum HapticAreaKind {
+  HAPTIC_AREA_KIND_UNSPECIFIED = 0;
+  HAPTIC_AREA_KIND_FIRE        = 1;
+  HAPTIC_AREA_KIND_BLOCK       = 2;
+}
+
+enum HapticEffect {
+  HAPTIC_EFFECT_UNSPECIFIED = 0;
+  HAPTIC_EFFECT_DEFAULT     = 1;
+}
+
+message HapticAreaRect {
+  uint32 x0 = 1;
+  uint32 y0 = 2;
+  uint32 x1 = 3;
+  uint32 y1 = 4;
+}
+
+message HapticArea {
+  uint32          id      = 1;
+  string          tag     = 2;
+  HapticAreaRect  rect    = 3;
+  bool            enabled = 4;
+  HapticAreaKind  kind    = 5;
+  HapticEffect    haptic  = 6;
+}
+
+message GetHapticAreaListRequest  {}
+message GetHapticAreaListResponse {
+  repeated uint32 ids = 1;
+}
+
+message GetHapticAreaRequest  { uint32 id = 1; }
+message GetHapticAreaResponse { HapticArea area = 1; }
+
+message SetHapticAreaRequest  { HapticArea area = 1; }
+message SetHapticAreaResponse { HapticArea area = 1; }
+
+message GetHapticAreaModeRequest  {}
+message GetHapticAreaModeResponse { bool enabled = 1; }
+
+message SetHapticAreaModeRequest  { bool enabled = 1; }
+message SetHapticAreaModeResponse { bool enabled = 1; }
 `;
 
 // ---------------------------------------------------------------------------
@@ -385,13 +443,15 @@ function cobsDecode(data) {
 // ---------------------------------------------------------------------------
 // UI helpers
 // ---------------------------------------------------------------------------
-const logEl        = document.getElementById("log");
-const statusEl     = document.getElementById("status-line");
-const btnConnect   = document.getElementById("btn-connect");
-const btnDisconnect= document.getElementById("btn-disconnect");
-const btnUptime    = document.getElementById("btn-uptime");
-const btnStream    = document.getElementById("btn-stream");
-const btnTelemetry = document.getElementById("btn-telemetry");
+const logEl          = document.getElementById("log");
+const statusEl       = document.getElementById("status-line");
+const btnConnect     = document.getElementById("btn-connect");
+const btnDisconnect  = document.getElementById("btn-disconnect");
+const btnUptime      = document.getElementById("btn-uptime");
+const btnStream      = document.getElementById("btn-stream");
+const btnTelemetry   = document.getElementById("btn-telemetry");
+const btnAddArea     = document.getElementById("addAreaButton");
+const btnHapticMode  = document.getElementById("hapticModeButton");
 
 function ts() {
   const d = new Date();
@@ -435,6 +495,14 @@ let requestCounter = 0;
 
 function nextRequestId() { return ++requestCounter; }
 
+// id -> { id, tag, rect: {x0,y0,x1,y1}, enabled, kind, haptic }
+const hapticAreaMap = new Map();
+let nextLocalAreaIdx = 1;      // for default tag generation
+let dragMode = false;          // toggled by "Add area" button
+let dragStartPanel = null;     // {x, y} captured on mousedown
+let dragCurrentPanel = null;   // updated during drag for live preview
+let hapticAreaModeOn = false;  // mirror of MCU state
+
 // ---------------------------------------------------------------------------
 // Connect / Disconnect
 // ---------------------------------------------------------------------------
@@ -454,6 +522,8 @@ async function openPort(p) {
   btnUptime.disabled     = false;
   btnStream.disabled     = false;
   btnTelemetry.disabled  = false;
+  btnAddArea.disabled    = false;
+  btnHapticMode.disabled = false;
 
   setStatus("Connected", "connected");
   logInfo("Port opened at 115200 baud");
@@ -464,6 +534,19 @@ async function openPort(p) {
   // unwind it cleanly.
   readLoopAbort = new AbortController();
   runReadLoop(readLoopAbort.signal);
+
+  // Seed initial haptic-area state from the device (read loop must be
+  // running first so responses can be received).
+  try {
+    const modeResp = await sendRequest(() => ({ getHapticAreaMode: {} }));
+    if (modeResp.payload === "getHapticAreaMode") {
+      hapticAreaModeOn = modeResp.getHapticAreaMode.enabled;
+      btnHapticMode.textContent = `Haptic mode: ${hapticAreaModeOn ? "ON" : "OFF"}`;
+    }
+    await refreshHapticAreas();
+  } catch (e) {
+    console.warn("haptic-area initial fetch failed:", e);
+  }
 }
 
 // ---- Frame-level send/receive ----------------------------------------------
@@ -628,6 +711,8 @@ async function doDisconnect(reason) {
   btnUptime.disabled     = true;
   btnStream.disabled     = true;
   btnTelemetry.disabled  = true;
+  btnAddArea.disabled    = true;
+  btnHapticMode.disabled = true;
 
   setStatus("Not connected");
   logInfo(reason || "Disconnected");
@@ -704,6 +789,76 @@ btnTelemetry.addEventListener("click", async () => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Haptic area helpers
+// ---------------------------------------------------------------------------
+
+async function refreshHapticAreas() {
+  const listResp = await sendRequest(() => ({ getHapticAreaList: {} }));
+  if (listResp.payload !== "getHapticAreaList") return;
+  const ids = listResp.getHapticAreaList.ids || [];
+  hapticAreaMap.clear();
+  for (const id of ids) {
+    const r = await sendRequest(() => ({ getHapticArea: { id } }));
+    if (r.payload === "getHapticArea" && r.getHapticArea.area) {
+      const a = r.getHapticArea.area;
+      hapticAreaMap.set(id, {
+        id: a.id,
+        tag: a.tag || "",
+        rect: { x0: a.rect.x0|0, y0: a.rect.y0|0, x1: a.rect.x1|0, y1: a.rect.y1|0 },
+        enabled: !!a.enabled,
+        kind: a.kind,    // numeric (0=UNSPECIFIED, 1=FIRE, 2=BLOCK)
+        haptic: a.haptic, // numeric (0=UNSPECIFIED, 1=DEFAULT)
+      });
+    }
+  }
+}
+
+function drawHapticAreasOverlay(ctx, canvas) {
+  ctx.lineWidth = 2;
+  for (const a of hapticAreaMap.values()) {
+    const sx = canvas.width  / DISPLAY_W_PX;
+    const sy = canvas.height / DISPLAY_H_PX;
+    const cx = a.rect.x0 * sx;
+    const cy = a.rect.y0 * sy;
+    const cw = (a.rect.x1 - a.rect.x0) * sx;
+    const ch = (a.rect.y1 - a.rect.y0) * sy;
+    if (!a.enabled) {
+      ctx.strokeStyle = "gray";
+      ctx.setLineDash([8, 4]);
+    } else if (a.kind === 2 /* HAPTIC_AREA_KIND_BLOCK */) {
+      ctx.strokeStyle = "red";
+      ctx.setLineDash([]);
+    } else {
+      ctx.strokeStyle = "lime";
+      ctx.setLineDash([]);
+    }
+    ctx.strokeRect(cx, cy, cw, ch);
+  }
+  ctx.setLineDash([]);
+
+  // Live drag preview while creating an area.
+  if (dragStartPanel && dragCurrentPanel) {
+    const sx = canvas.width  / DISPLAY_W_PX;
+    const sy = canvas.height / DISPLAY_H_PX;
+    const x0 = Math.min(dragStartPanel.x, dragCurrentPanel.x);
+    const y0 = Math.min(dragStartPanel.y, dragCurrentPanel.y);
+    const x1 = Math.max(dragStartPanel.x, dragCurrentPanel.x);
+    const y1 = Math.max(dragStartPanel.y, dragCurrentPanel.y);
+    ctx.strokeStyle = "yellow";
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(x0 * sx, y0 * sy, (x1 - x0) * sx, (y1 - y0) * sy);
+    ctx.setLineDash([]);
+  }
+}
+
+function canvasToPanel(canvas, offsetX, offsetY) {
+  return {
+    x: Math.max(0, Math.min(DISPLAY_W_PX, Math.round(offsetX * DISPLAY_W_PX / canvas.width))),
+    y: Math.max(0, Math.min(DISPLAY_H_PX, Math.round(offsetY * DISPLAY_H_PX / canvas.height))),
+  };
+}
+
 // ---- Touch canvas rendering ------------------------------------------------
 //
 // DISPLAY_W_PX / DISPLAY_H_PX are the rotated display dimensions —
@@ -758,6 +913,8 @@ function drawCanvas() {
     ctx.fillStyle = "#222";
     ctx.fillText(`id=${f.id}`, cx, cy - ry - 6);
   }
+
+  drawHapticAreasOverlay(ctx, canvas);
 }
 
 // Wire the dispatcher's event handler. Each touch_frame event becomes
@@ -767,6 +924,82 @@ touchEventHandler = (event) => {
   lastFrame = event.touchFrame;
   drawCanvas();
 };
+
+// ---- Canvas drag-to-add mouse handlers ------------------------------------
+
+canvas.addEventListener("mousedown", (e) => {
+  if (!dragMode) return;
+  dragStartPanel = canvasToPanel(canvas, e.offsetX, e.offsetY);
+  dragCurrentPanel = dragStartPanel;
+});
+
+canvas.addEventListener("mousemove", (e) => {
+  if (!dragMode || !dragStartPanel) return;
+  dragCurrentPanel = canvasToPanel(canvas, e.offsetX, e.offsetY);
+});
+
+canvas.addEventListener("mouseup", async (e) => {
+  if (!dragMode || !dragStartPanel) return;
+  const end = canvasToPanel(canvas, e.offsetX, e.offsetY);
+  const start = dragStartPanel;
+  dragStartPanel = null;
+  dragCurrentPanel = null;
+
+  const x0 = Math.min(start.x, end.x);
+  const x1 = Math.max(start.x, end.x);
+  const y0 = Math.min(start.y, end.y);
+  const y1 = Math.max(start.y, end.y);
+  // Reject too-small drags (stray clicks).
+  if (x1 - x0 < 50 || y1 - y0 < 50) return;
+
+  const tag = `area-${nextLocalAreaIdx++}`;
+  try {
+    const resp = await sendRequest(() => ({
+      setHapticArea: {
+        area: {
+          id: 0,
+          tag,
+          rect: { x0, y0, x1, y1 },
+          enabled: true,
+          kind: 1,    // HAPTIC_AREA_KIND_FIRE
+          haptic: 1,  // HAPTIC_EFFECT_DEFAULT
+        },
+      },
+    }));
+    if (resp.payload === "setHapticArea" && resp.setHapticArea.area) {
+      await refreshHapticAreas();
+    }
+  } catch (err) {
+    logErr("SetHapticArea failed: " + err.message);
+  }
+});
+
+canvas.addEventListener("mouseleave", () => {
+  // Drop the in-progress drag if the mouse leaves without releasing.
+  dragStartPanel = null;
+  dragCurrentPanel = null;
+});
+
+// ---- Haptic area button handlers ------------------------------------------
+
+btnAddArea.addEventListener("click", () => {
+  dragMode = !dragMode;
+  btnAddArea.textContent = `Add area: ${dragMode ? "ON" : "OFF"}`;
+});
+
+btnHapticMode.addEventListener("click", async () => {
+  try {
+    const resp = await sendRequest(() => ({
+      setHapticAreaMode: { enabled: !hapticAreaModeOn },
+    }));
+    if (resp.payload === "setHapticAreaMode") {
+      hapticAreaModeOn = resp.setHapticAreaMode.enabled;
+      btnHapticMode.textContent = `Haptic mode: ${hapticAreaModeOn ? "ON" : "OFF"}`;
+    }
+  } catch (err) {
+    logErr("SetHapticAreaMode failed: " + err.message);
+  }
+});
 
 // Initial sizing pass after layout settles.
 window.addEventListener("load", resizeCanvas);

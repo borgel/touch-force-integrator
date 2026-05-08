@@ -80,6 +80,20 @@ void HapticArea_Init(void)
 {
   s_mutex = xSemaphoreCreateMutexStatic(&s_mutexMeta);
 
+  /* RNG kernel clock on STM32H7S is hardwired to HSI48 — there's no
+   * mux through HAL_RCCEx_PeriphCLKConfig. The bootloader leaves
+   * HSI48 off, so we explicitly turn it on here before HAL_RNG_Init.
+   * USB FS also depends on HSI48 (HAL_PCD_MspInit does the same
+   * RCC_HSI48_ON dance later); HAL_RCC_OscConfig is idempotent so
+   * the second enable from the USB stack is a no-op. */
+  RCC_OscInitTypeDef oscInit = {0};
+  oscInit.OscillatorType = RCC_OSCILLATORTYPE_HSI48;
+  oscInit.HSI48State     = RCC_HSI48_ON;
+  oscInit.PLL.PLLState   = RCC_PLL_NONE;  /* don't reconfigure PLLs */
+  if (HAL_RCC_OscConfig(&oscInit) != HAL_OK) {
+    Error_Handler();
+  }
+
   __HAL_RCC_RNG_CLK_ENABLE();
   s_rngHandle.Instance = RNG;
   if (HAL_RNG_Init(&s_rngHandle) != HAL_OK) {

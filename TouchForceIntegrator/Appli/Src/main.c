@@ -416,7 +416,12 @@ static void Touch_RenderLayer0(void)
   const uint32_t TOUCH_Y0 = 0U;
 
   BSP_LCD_SetActiveLayer(0, 0);
-  UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
+  /* Repaint just the touch area to white. The right-side strip on
+   * layer 0 was painted black in Touch_InitLCD and nothing else
+   * lands on it, so we don't need a full-screen clear here —
+   * skipping it halves the DMA2D work (and the current spike that
+   * was disconnecting USB on the ST-Link-powered board). White
+   * also clears any outline pixels left from a previous repaint. */
   UTIL_LCD_FillRect(TOUCH_X0, TOUCH_Y0, TOUCH_W, TOUCH_H,
                     UTIL_LCD_COLOR_WHITE);
 

@@ -203,14 +203,16 @@ message Request {
   uint32 request_id = 1;
   // field 2 reserved for Response.error symmetry
   oneof payload {
-    GetUptimeRequest            get_uptime             = 3;
-    SetTouchStreamingRequest    set_touch_streaming    = 4;
-    GetTelemetryRequest         get_telemetry          = 5;
-    GetHapticAreaListRequest    get_haptic_area_list   = 6;
-    GetHapticAreaRequest        get_haptic_area        = 7;
-    SetHapticAreaRequest        set_haptic_area        = 8;
-    GetHapticAreaModeRequest    get_haptic_area_mode   = 9;
-    SetHapticAreaModeRequest    set_haptic_area_mode   = 10;
+    GetUptimeRequest             get_uptime              = 3;
+    SetTouchStreamingRequest     set_touch_streaming     = 4;
+    GetTelemetryRequest          get_telemetry           = 5;
+    SetHapticAreaRequest         set_haptic_area         = 6;
+    GetHapticAreaRequest         get_haptic_area         = 7;
+    GetHapticAreaListRequest     get_haptic_area_list    = 8;
+    DeleteHapticAreaRequest      delete_haptic_area      = 9;
+    DeleteAllHapticAreasRequest  delete_all_haptic_areas = 10;
+    SetHapticAreaModeRequest     set_haptic_area_mode    = 11;
+    GetHapticAreaModeRequest     get_haptic_area_mode    = 12;
   }
 }
 
@@ -219,15 +221,17 @@ message Request {
 message Response {
   uint32 request_id = 1;
   oneof payload {
-    ErrorResponse               error                  = 2;
-    GetUptimeResponse           get_uptime             = 3;
+    ErrorResponse              error                   = 2;
+    GetUptimeResponse          get_uptime              = 3;
     // 4: gap — set_touch_streaming is fire-and-forget
-    GetTelemetryResponse        get_telemetry          = 5;
-    GetHapticAreaListResponse   get_haptic_area_list   = 6;
-    GetHapticAreaResponse       get_haptic_area        = 7;
-    SetHapticAreaResponse       set_haptic_area        = 8;
-    GetHapticAreaModeResponse   get_haptic_area_mode   = 9;
-    SetHapticAreaModeResponse   set_haptic_area_mode   = 10;
+    GetTelemetryResponse       get_telemetry           = 5;
+    SetHapticAreaResponse      set_haptic_area         = 6;
+    GetHapticAreaResponse      get_haptic_area         = 7;
+    GetHapticAreaListResponse  get_haptic_area_list    = 8;
+    OkResponse                 delete_haptic_area      = 9;
+    OkResponse                 delete_all_haptic_areas = 10;
+    SetHapticAreaModeResponse  set_haptic_area_mode    = 11;
+    GetHapticAreaModeResponse  get_haptic_area_mode    = 12;
   }
 }
 
@@ -333,22 +337,27 @@ message HapticArea {
   HapticEffect    haptic  = 6;
 }
 
-message GetHapticAreaListRequest  {}
-message GetHapticAreaListResponse {
-  repeated uint32 ids = 1;
-}
-
-message GetHapticAreaRequest  { uint32 id = 1; }
-message GetHapticAreaResponse { HapticArea area = 1; }
+message OkResponse {}
 
 message SetHapticAreaRequest  { HapticArea area = 1; }
 message SetHapticAreaResponse { HapticArea area = 1; }
 
-message GetHapticAreaModeRequest  {}
-message GetHapticAreaModeResponse { bool enabled = 1; }
+message GetHapticAreaRequest  { uint32 id = 1; }
+message GetHapticAreaResponse { HapticArea area = 1; }
+
+message GetHapticAreaListRequest  {}
+message GetHapticAreaListResponse {
+  repeated uint32 ids = 1 [packed = true];
+}
+
+message DeleteHapticAreaRequest      { uint32 id = 1; }
+message DeleteAllHapticAreasRequest  {}
 
 message SetHapticAreaModeRequest  { bool enabled = 1; }
 message SetHapticAreaModeResponse { bool enabled = 1; }
+
+message GetHapticAreaModeRequest  {}
+message GetHapticAreaModeResponse { bool enabled = 1; }
 `;
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 #include "main.h"
 #include "FreeRTOS.h"
 #include "semphr.h"
+#include "timers.h"
 #include "cmsis_os2.h"
 #include "usbpd.h"
 #include "usb_host.h"
@@ -146,6 +147,19 @@ static struct {
   uint8_t fingers;
 } s_displayedStatus;
 static uint8_t s_statusDirty;
+
+/* Per-finger rising-edge tracker. wisecoco finger ids are stable
+ * for the duration of a single touch (lift+redown gets a new id),
+ * so equality on id is enough to detect "this finger was already
+ * touching last frame". MAX_TOUCHES = 10. */
+static uint8_t s_prevTouchingIds[MAX_TOUCHES];
+static uint8_t s_prevTouchingCount;
+
+/* One-shot 100 ms timer that turns LD1 off after a fire. xTimerReset
+ * during an active period extends the on-time, so a burst of fires
+ * reads as a single sustained pulse. */
+static StaticTimer_t s_ledTimerMeta;
+static TimerHandle_t s_ledTimer;
 
 void HAL_LTDC_LineEventCallback(LTDC_HandleTypeDef *hltdc)
 {
@@ -483,10 +497,41 @@ static void Touch_InitLCD(void)
   }
 }
 
+static void Haptic_LedTimerCallback(TimerHandle_t xTimer)
+{
+  (void)xTimer;
+  BSP_LED_Off(LED1);
+}
+
+/* Async fire: drives LD1 on, (re)starts the 100 ms one-shot
+ * timer. Subsequent fires within 100 ms extend the on-time so a
+ * burst reads as a single sustained pulse. Non-blocking — the
+ * touch loop never waits for the LED to turn off. */
+static void Haptic_Fire(touchforce_v1_HapticEffect effect)
+{
+  if (effect != touchforce_v1_HapticEffect_HAPTIC_EFFECT_DEFAULT) {
+    return;  /* unspecified or unknown effect: no fire */
+  }
+  BSP_LED_On(LED1);
+  /* xTimerReset both starts the timer (if stopped) and resets
+   * its countdown (if running). 0-tick block since we're in a
+   * task context. */
+  (void)xTimerReset(s_ledTimer, pdMS_TO_TICKS(0));
+}
+
 void _Touch_Task(void *argument)
 {
   (void)argument;
   Touch_InitLCD();
+
+  BSP_LED_Init(LED1);
+  s_ledTimer = xTimerCreateStatic(
+      "led-pulse",
+      pdMS_TO_TICKS(100),     /* one-shot 100 ms */
+      pdFALSE,                 /* uxAutoReload = pdFALSE */
+      NULL,
+      Haptic_LedTimerCallback,
+      &s_ledTimerMeta);
 
   /* Force the initial status paint so the panel is visible on boot
    * even if the sampled state happens to match the all-zero default
@@ -508,6 +553,46 @@ void _Touch_Task(void *argument)
     }
 
     Touch_UpdateStatus(lastSnapshot.tipsTouchedDown);
+
+    /* Per-finger rising-edge detection: any finger id present now
+     * and absent in s_prevTouchingIds is a touchdown event. Only
+     * runs when we have a fresh frame — no frame means no new
+     * events. */
+    if (gotFrame) {
+      for (unsigned i = 0; i < snapshot.liveTouches; i++) {
+        const struct USBH_WCSingleFinger *f = &snapshot.fingers[i];
+        if (!f->touching) continue;
+
+        bool wasTouching = false;
+        for (uint8_t j = 0; j < s_prevTouchingCount; j++) {
+          if (s_prevTouchingIds[j] == f->id) {
+            wasTouching = true;
+            break;
+          }
+        }
+        if (wasTouching) continue;  /* not a rising edge */
+
+        if (!HapticArea_GetMode()) {
+          /* mode=disabled: every rising edge fires the default. */
+          Haptic_Fire(touchforce_v1_HapticEffect_HAPTIC_EFFECT_DEFAULT);
+        } else {
+          touchforce_v1_HapticEffect hit =
+              HapticArea_TestRisingEdge((uint32_t)f->x, (uint32_t)f->y);
+          if (hit != touchforce_v1_HapticEffect_HAPTIC_EFFECT_UNSPECIFIED) {
+            Haptic_Fire(hit);
+          }
+        }
+      }
+
+      /* Refresh prev set with currently-touching ids for next frame. */
+      s_prevTouchingCount = 0U;
+      for (unsigned i = 0; i < snapshot.liveTouches; i++) {
+        const struct USBH_WCSingleFinger *f = &snapshot.fingers[i];
+        if (f->touching && s_prevTouchingCount < MAX_TOUCHES) {
+          s_prevTouchingIds[s_prevTouchingCount++] = f->id;
+        }
+      }
+    }
 
     /* Both layer-1 buffers consistent and no new touch data: skip
      * the swap so we don't waste a VBLANK wait. */

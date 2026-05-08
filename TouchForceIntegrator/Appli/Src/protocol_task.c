@@ -13,21 +13,17 @@
 #include <stdint.h>
 #include <string.h>
 
-/* Worst-case sizes for v2.
- *
- *   Incoming Frame{Request}: request_id (5) + oneof tag (1) +
- *     length (1) + payload (largest current: SetTouchStreaming
- *     ~3 bytes; future commands grow). Plus Frame envelope tag
- *     (1) + length (1). Well under 64 bytes for v2.
- *
- *   Outgoing Frame{Response}: largest is ErrorResponse with
- *     full 64-byte message (~75 bytes Response) plus Frame
- *     envelope ~3 bytes = ~78 bytes.
- *
- * COBS overhead: +1 per 254 + 1 leading byte. 256 covers it
- * comfortably and stays a power of 2 for cache cleanliness. */
-#define PROTO_FRAME_MAX_BYTES   256U
-#define PROTO_DECODED_MAX_BYTES 256U
+/* RX (host -> MCU) frames stay small: largest current Request is
+ * SetHapticArea at ~80 bytes. 256 keeps headroom for future short
+ * commands without paying for big buffers we don't need. */
+#define PROTO_RX_FRAME_MAX_BYTES  256U
+#define PROTO_RX_DECODED_BYTES    256U
+
+/* TX (MCU -> host) frames must fit GetHapticAreaListResponse with
+ * 1024 packed-uint32 ids (~5 KB encoded) plus COBS overhead.
+ * 8192 covers 1024 ids comfortably and stays a power of 2. */
+#define PROTO_TX_FRAME_MAX_BYTES  8192U
+#define PROTO_TX_ENCODED_BYTES    8192U
 
 /* Read timeout for assembling a single frame. */
 #define PROTO_RX_BLOCK_FOREVER  HAL_MAX_DELAY
@@ -37,11 +33,11 @@
  * the host is actively waiting; we should pay a small wait. */
 #define PROTO_TX_TIMEOUT_MS     200U
 
-static uint8_t s_rxFrame[PROTO_FRAME_MAX_BYTES];
+static uint8_t s_rxFrame[PROTO_RX_FRAME_MAX_BYTES];
 static size_t  s_rxFrameLen;
-static uint8_t s_decodedBuf[PROTO_DECODED_MAX_BYTES];
-static uint8_t s_responseBuf[PROTO_DECODED_MAX_BYTES];
-static uint8_t s_txFrame[PROTO_FRAME_MAX_BYTES];
+static uint8_t s_decodedBuf[PROTO_RX_DECODED_BYTES];
+static uint8_t s_responseBuf[PROTO_TX_ENCODED_BYTES];
+static uint8_t s_txFrame[PROTO_TX_FRAME_MAX_BYTES];
 
 static void rx_reset(void)
 {
@@ -50,7 +46,7 @@ static void rx_reset(void)
 
 static bool rx_append(uint8_t b)
 {
-  if (s_rxFrameLen >= PROTO_FRAME_MAX_BYTES)
+  if (s_rxFrameLen >= PROTO_RX_FRAME_MAX_BYTES)
   {
     rx_reset();
     return false;

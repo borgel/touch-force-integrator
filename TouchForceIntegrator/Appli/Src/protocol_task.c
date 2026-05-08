@@ -4,6 +4,8 @@
 #include "usbd_cdc_if.h"
 #include "usbd_def.h"
 
+#include "haptic_area.h"
+
 #include "cobs.h"
 #include "pb_decode.h"
 #include "pb_encode.h"
@@ -82,6 +84,59 @@ static void fill_error_response(touchforce_v1_Response *resp,
     size_t cap = sizeof(resp->payload.error.message);
     strncpy(resp->payload.error.message, msg, cap - 1U);
     resp->payload.error.message[cap - 1U] = '\0';
+  }
+}
+
+static void fill_set_haptic_area_response(const touchforce_v1_Request *req,
+                                          touchforce_v1_Response *resp)
+{
+  /* The wire request always has has_area==true for nanopb sub-msg
+   * encoding; we treat a missing area as an invalid-rect failure
+   * since the rect would be all zero. Copy by value because
+   * HapticArea_Set mutates *areaInOut to fill in the assigned id. */
+  touchforce_v1_HapticArea area = req->payload.set_haptic_area.area;
+  uint32_t errCode = 0U;
+  if (HapticArea_Set(&area, &errCode)) {
+    resp->which_payload = touchforce_v1_Response_set_haptic_area_tag;
+    resp->payload.set_haptic_area.has_area = true;
+    resp->payload.set_haptic_area.area     = area;
+  } else {
+    fill_error_response(resp, errCode,
+                        errCode == HAPTIC_AREA_ERR_TABLE_FULL ? "table full"
+                      : errCode == HAPTIC_AREA_ERR_INVALID_RECT ? "invalid rect"
+                      : "set failed");
+  }
+}
+
+static void fill_get_haptic_area_response(const touchforce_v1_Request *req,
+                                          touchforce_v1_Response *resp)
+{
+  touchforce_v1_HapticArea area = touchforce_v1_HapticArea_init_zero;
+  if (HapticArea_Get(req->payload.get_haptic_area.id, &area)) {
+    resp->which_payload = touchforce_v1_Response_get_haptic_area_tag;
+    resp->payload.get_haptic_area.has_area = true;
+    resp->payload.get_haptic_area.area     = area;
+  } else {
+    fill_error_response(resp, HAPTIC_AREA_ERR_NOT_FOUND, "not found");
+  }
+}
+
+static void fill_get_haptic_area_list_response(touchforce_v1_Response *resp)
+{
+  resp->which_payload = touchforce_v1_Response_get_haptic_area_list_tag;
+  uint32_t cap = (uint32_t)HAPTIC_AREA_MAX_COUNT;
+  HapticArea_GetList(resp->payload.get_haptic_area_list.ids, &cap);
+  resp->payload.get_haptic_area_list.ids_count = (pb_size_t)cap;
+}
+
+static void fill_delete_haptic_area_response(const touchforce_v1_Request *req,
+                                             touchforce_v1_Response *resp)
+{
+  if (HapticArea_Delete(req->payload.delete_haptic_area.id)) {
+    /* Empty OkResponse — only the oneof tag matters. */
+    resp->which_payload = touchforce_v1_Response_delete_haptic_area_tag;
+  } else {
+    fill_error_response(resp, HAPTIC_AREA_ERR_NOT_FOUND, "not found");
   }
 }
 
@@ -166,6 +221,31 @@ static void handle_frame(void)
       break;
     case touchforce_v1_Request_get_telemetry_tag:
       fill_get_telemetry_response(&resp);
+      break;
+    case touchforce_v1_Request_set_haptic_area_tag:
+      fill_set_haptic_area_response(req, &resp);
+      break;
+    case touchforce_v1_Request_get_haptic_area_tag:
+      fill_get_haptic_area_response(req, &resp);
+      break;
+    case touchforce_v1_Request_get_haptic_area_list_tag:
+      fill_get_haptic_area_list_response(&resp);
+      break;
+    case touchforce_v1_Request_delete_haptic_area_tag:
+      fill_delete_haptic_area_response(req, &resp);
+      break;
+    case touchforce_v1_Request_delete_all_haptic_areas_tag:
+      HapticArea_DeleteAll();
+      resp.which_payload = touchforce_v1_Response_delete_all_haptic_areas_tag;
+      break;
+    case touchforce_v1_Request_set_haptic_area_mode_tag:
+      HapticArea_SetMode(req->payload.set_haptic_area_mode.enabled);
+      resp.which_payload = touchforce_v1_Response_set_haptic_area_mode_tag;
+      resp.payload.set_haptic_area_mode.enabled = HapticArea_GetMode();
+      break;
+    case touchforce_v1_Request_get_haptic_area_mode_tag:
+      resp.which_payload = touchforce_v1_Response_get_haptic_area_mode_tag;
+      resp.payload.get_haptic_area_mode.enabled = HapticArea_GetMode();
       break;
     default:
       /* Unknown command tag (host running newer protocol than MCU,

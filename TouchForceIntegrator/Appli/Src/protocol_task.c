@@ -144,7 +144,12 @@ static void fill_delete_haptic_area_response(const touchforce_v1_Request *req,
  * COBS-encode + 0x00 delimiter, CDC_Write. */
 static void send_response(const touchforce_v1_Response *resp)
 {
-  touchforce_v1_Frame frame = touchforce_v1_Frame_init_zero;
+  /* touchforce_v1_Frame is ~6 KB after GetHapticAreaListResponse
+   * joined the Response oneof — too big for the 2 KB CDC_Task
+   * stack. Function-local static lives in BSS; only _CDC_Task
+   * calls send_response so no concurrency. */
+  static touchforce_v1_Frame frame;
+  memset(&frame, 0, sizeof(frame));
   frame.which_kind = touchforce_v1_Frame_response_tag;
   frame.kind.response = *resp;
 
@@ -187,7 +192,12 @@ static void handle_frame(void)
     return;
   }
 
-  touchforce_v1_Frame frame = touchforce_v1_Frame_init_zero;
+  /* See note in send_response — same stack-pressure reason. The
+   * incoming Frame is parsed for which_kind only; if it's a
+   * Request we keep it valid until handle_frame returns, which
+   * is the same lifetime as the (also-static) resp below. */
+  static touchforce_v1_Frame frame;
+  memset(&frame, 0, sizeof(frame));
   pb_istream_t is = pb_istream_from_buffer(s_decodedBuf, dec.out_len);
   if (!pb_decode(&is, touchforce_v1_Frame_fields, &frame))
   {
@@ -211,7 +221,8 @@ static void handle_frame(void)
 
   /* Other commands always send a Response (even errors) so the
    * host can correlate by request_id. */
-  touchforce_v1_Response resp = touchforce_v1_Response_init_zero;
+  static touchforce_v1_Response resp;
+  memset(&resp, 0, sizeof(resp));
   resp.request_id = req->request_id;
 
   switch (req->which_payload)

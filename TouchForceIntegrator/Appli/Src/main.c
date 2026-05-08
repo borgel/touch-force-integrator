@@ -483,7 +483,13 @@ static void Touch_PresentLayers(bool swapL0, bool swapL1)
  * bumps the corresponding counter so GetTelemetry can report it. */
 static void Touch_StreamFrame(const struct USBH_LatestWisecocoData *snap)
 {
-  touchforce_v1_Frame frame = touchforce_v1_Frame_init_zero;
+  /* touchforce_v1_Frame is ~6 KB after GetHapticAreaListResponse (1024
+   * uint32 ids) joined the oneof — too big for the 2 KB task stack.
+   * Function-local static lives in BSS, called only from _Touch_Task
+   * so no concurrency. memset reproduces the _init_zero semantics on
+   * each entry. */
+  static touchforce_v1_Frame frame;
+  memset(&frame, 0, sizeof(frame));
   frame.which_kind = touchforce_v1_Frame_event_tag;
 
   touchforce_v1_Event *event = &frame.kind.event;

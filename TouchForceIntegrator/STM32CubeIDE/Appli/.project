@@ -684,6 +684,11 @@
 			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/protocol_task.c</locationURI>
 		</link>
 		<link>
+			<name>Application/User/haptic_area.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/haptic_area.c</locationURI>
+		</link>
+		<link>
 			<name>Application/User/proto/touch_force.pb.c</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/proto/touch_force.pb.c</locationURI>

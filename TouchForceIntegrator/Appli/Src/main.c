@@ -11,6 +11,7 @@
 #include "stm32h7s78_discovery_lcd.h"
 #include "usbh_hid_wisecoco.h"
 #include "protocol_task.h"
+#include "haptic_area.h"
 #include "cobs.h"
 #include "pb_encode.h"
 #include "touch_force.pb.h"
@@ -180,6 +181,7 @@ int main(void)
    * tasks that wait on them. Both are static, no scheduler needed. */
   USBH_HID_WisecocoAppInit();
   USBH_HostEvent_AppInit();
+  HapticArea_Init();
 
   MX_USBPD_Init();
 

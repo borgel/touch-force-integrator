@@ -1,7 +1,6 @@
 #include "main.h"
 #include "FreeRTOS.h"
 #include "semphr.h"
-#include "timers.h"
 #include "cmsis_os2.h"
 #include "usbpd.h"
 #include "usb_host.h"
@@ -163,11 +162,15 @@ static uint32_t s_lastHapticAreaGeneration;
 static uint8_t s_prevTouchingIds[MAX_TOUCHES];
 static uint8_t s_prevTouchingCount;
 
-/* One-shot 100 ms timer that turns LD1 off after a fire. xTimerReset
- * during an active period extends the on-time, so a burst of fires
- * reads as a single sustained pulse. */
-static StaticTimer_t s_ledTimerMeta;
-static TimerHandle_t s_ledTimer;
+/* HAL_GetTick() value at which LD1 should be turned off, or 0 when
+ * the LED is currently off and no pulse is pending. A burst of fires
+ * within the active window keeps overwriting this with a fresh
+ * deadline, so the LED stays on through the burst. The check runs
+ * at the top of each _Touch_Task loop iteration; the WaitFrame
+ * timeout below is shrunk to land at the deadline so a single tap
+ * still turns the LED off near 100 ms even with no follow-up touch
+ * frames to wake the loop. */
+static volatile uint32_t s_ledOffDeadline;
 
 void HAL_LTDC_LineEventCallback(LTDC_HandleTypeDef *hltdc)
 {
@@ -608,26 +611,23 @@ static void Touch_InitLCD(void)
   }
 }
 
-static void Haptic_LedTimerCallback(TimerHandle_t xTimer)
-{
-  (void)xTimer;
-  BSP_LED_Off(LD1);
-}
-
-/* Async fire: drives LD1 on, (re)starts the 100 ms one-shot
- * timer. Subsequent fires within 100 ms extend the on-time so a
- * burst reads as a single sustained pulse. Non-blocking — the
- * touch loop never waits for the LED to turn off. */
+/* Drive LD1 on and arm a 100 ms shutoff deadline. Re-arming an
+ * already-active deadline extends the on-time so a burst of fires
+ * reads as a single sustained pulse. Non-blocking — the actual
+ * shutoff happens in the touch-task loop when the deadline elapses.
+ *
+ * Earlier versions used a FreeRTOS one-shot timer here; that was
+ * fragile (the timer service task at FreeRTOS priority 2 can be
+ * starved by the touch task's ~250 Hz wakeups) and a HAL_GetTick
+ * deadline checked by the same task that arms it is simpler and
+ * just works. */
 static void Haptic_Fire(touchforce_v1_HapticEffect effect)
 {
   if (effect != touchforce_v1_HapticEffect_HAPTIC_EFFECT_DEFAULT) {
     return;  /* unspecified or unknown effect: no fire */
   }
   BSP_LED_On(LD1);
-  /* xTimerReset both starts the timer (if stopped) and resets
-   * its countdown (if running). 0-tick block since we're in a
-   * task context. */
-  (void)xTimerReset(s_ledTimer, pdMS_TO_TICKS(0));
+  s_ledOffDeadline = HAL_GetTick() + 100U;
 }
 
 void _Touch_Task(void *argument)
@@ -636,13 +636,6 @@ void _Touch_Task(void *argument)
   Touch_InitLCD();
 
   BSP_LED_Init(LD1);
-  s_ledTimer = xTimerCreateStatic(
-      "led-pulse",
-      pdMS_TO_TICKS(100),     /* one-shot 100 ms */
-      pdFALSE,                 /* uxAutoReload = pdFALSE */
-      NULL,
-      Haptic_LedTimerCallback,
-      &s_ledTimerMeta);
 
   /* Force the initial status paint so the panel is visible on boot
    * even if the sampled state happens to match the all-zero default
@@ -660,10 +653,27 @@ void _Touch_Task(void *argument)
   static struct USBH_LatestWisecocoData lastSnapshot;
   for (;;) {
     struct USBH_LatestWisecocoData snapshot;
-    /* 250 ms timeout, not HAL_MAX_DELAY, so USB plug events refresh
-     * the status panel while the touchscreen is idle (no frames
-     * published). */
-    bool gotFrame = USBH_HID_WisecocoWaitFrame(&snapshot, pdMS_TO_TICKS(250));
+
+    /* LED-off deadline check. Done before WaitFrame so the deadline
+     * lands at the right moment even on a single tap (no follow-up
+     * touch frames to wake us). If the deadline is in the future,
+     * shrink the WaitFrame timeout so we wake at exactly that point. */
+    uint32_t timeoutMs = 250U;
+    if (s_ledOffDeadline != 0U) {
+      uint32_t now = HAL_GetTick();
+      if ((int32_t)(now - s_ledOffDeadline) >= 0) {
+        BSP_LED_Off(LD1);
+        s_ledOffDeadline = 0U;
+      } else {
+        uint32_t remainingMs = s_ledOffDeadline - now;
+        if (remainingMs < timeoutMs) timeoutMs = remainingMs;
+      }
+    }
+
+    /* Default 250 ms timeout (not HAL_MAX_DELAY) so USB plug events
+     * refresh the status panel while the touchscreen is idle. The
+     * timeout above shrinks it further when an LED pulse is pending. */
+    bool gotFrame = USBH_HID_WisecocoWaitFrame(&snapshot, pdMS_TO_TICKS(timeoutMs));
     if (gotFrame) {
       lastSnapshot = snapshot;
     }

@@ -896,36 +896,42 @@ window.addEventListener("resize", resizeCanvas);
 function drawCanvas() {
   ctx.fillStyle = "#fafafa";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  if (!lastFrame) return;
 
   const scaleX = canvas.width  / DISPLAY_W_PX;
   const scaleY = canvas.height / DISPLAY_H_PX;
-  ctx.font = `${Math.round(20 * (window.devicePixelRatio || 1))}px monospace`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "alphabetic";
 
-  for (const f of lastFrame.fingers) {
-    const cx = f.x * scaleX;
-    const cy = f.y * scaleY;
-    const rx = (f.patchWidth  / 2) * scaleX;
-    const ry = (f.patchHeight / 2) * scaleY;
-    ctx.beginPath();
-    ctx.ellipse(cx, cy, Math.max(rx, 4), Math.max(ry, 4), 0, 0, 2 * Math.PI);
-    if (f.touching) {
-      ctx.fillStyle = "rgba(40, 80, 200, 0.55)";
-      ctx.fill();
-      ctx.strokeStyle = "rgba(40, 80, 200, 0.9)";
-      ctx.lineWidth = 2;
-      ctx.stroke();
-    } else {
-      ctx.strokeStyle = "rgba(150, 150, 150, 0.7)";
-      ctx.lineWidth = 2;
-      ctx.stroke();
+  // Touch ellipses are conditional: only drawn once a TouchFrameEvent
+  // has been received and cached in lastFrame. The haptic-area overlay
+  // below runs unconditionally so newly-added areas show up immediately
+  // (refreshHapticAreas → redrawCanvas, before any touch has occurred).
+  if (lastFrame) {
+    ctx.font = `${Math.round(20 * (window.devicePixelRatio || 1))}px monospace`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "alphabetic";
+
+    for (const f of lastFrame.fingers) {
+      const cx = f.x * scaleX;
+      const cy = f.y * scaleY;
+      const rx = (f.patchWidth  / 2) * scaleX;
+      const ry = (f.patchHeight / 2) * scaleY;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy, Math.max(rx, 4), Math.max(ry, 4), 0, 0, 2 * Math.PI);
+      if (f.touching) {
+        ctx.fillStyle = "rgba(40, 80, 200, 0.55)";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(40, 80, 200, 0.9)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = "rgba(150, 150, 150, 0.7)";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
+
+      // ID label just above the ellipse top edge.
+      ctx.fillStyle = "#222";
+      ctx.fillText(`id=${f.id}`, cx, cy - ry - 6);
     }
-
-    // ID label just above the ellipse top edge.
-    ctx.fillStyle = "#222";
-    ctx.fillText(`id=${f.id}`, cx, cy - ry - 6);
   }
 
   drawHapticAreasOverlay(ctx, canvas);

@@ -366,7 +366,7 @@ static void Touch_DrawStatus(void)
                         : UTIL_LCD_COLOR_RED);
 
   UTIL_LCD_DisplayStringAt(STATUS_X0 + 12U, 180U,
-                           (uint8_t *)"HAPTIC", LEFT_MODE);
+                           (uint8_t *)"Areas", LEFT_MODE);
   UTIL_LCD_FillCircle(STATUS_X0 + 130U, 192U, STATUS_LED_R,
                       s_displayedStatus.hapticOn
                         ? UTIL_LCD_COLOR_GREEN

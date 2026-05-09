@@ -8,21 +8,16 @@
 
 #include <string.h>
 
-/* RNG peripheral handle. RNG isn't initialized in any MX_*_Init
- * block today, so we set it up locally in HapticArea_Init. */
 static RNG_HandleTypeDef s_rngHandle;
 
 static StaticSemaphore_t s_mutexMeta;
 static SemaphoreHandle_t s_mutex;
 
-/* mode default: false (== HAPTIC_AREA_MODE_DISABLED). volatile
- * because writes from _CDC_Task and reads from _Touch_Task must
- * not be cached across calls. */
+/* volatile so cross-task writes/reads aren't cached across calls. */
 static volatile bool     s_modeEnabled;
 
-/* Bumped under the mutex on every successful mutation. Read
- * lock-free by the LCD task. volatile + uint32 reads are atomic
- * on Cortex-M, so the cached/current comparison is safe. */
+/* Bumped under the mutex on every successful mutation; read
+ * lock-free by the LCD task (uint32 reads are atomic on Cortex-M). */
 static volatile uint32_t s_generation;
 
 typedef struct {
@@ -33,20 +28,18 @@ typedef struct {
 static HapticAreaSlot s_areas[HAPTIC_AREA_MAX_COUNT];
 static uint32_t       s_areaCount;
 
-/* --- Helpers (file-static) ------------------------------------------------ */
-
 static bool rectIsValid(const touchforce_v1_HapticAreaRect *r)
 {
   if (r->x0 >= r->x1) return false;
   if (r->y0 >= r->y1) return false;
-  /* x ranges over DISP_HEIGHT_PX, y over DISP_WIDTH_PX after the
-   * ROTATE_90 set in main.c. Match wisecoco's frame conventions. */
+  /* ROTATE_90 swaps the wisecoco axes, so panel x ranges over
+   * DISP_HEIGHT_PX and panel y over DISP_WIDTH_PX. */
   if (r->x1 > (uint32_t)DISP_HEIGHT_PX) return false;
   if (r->y1 > (uint32_t)DISP_WIDTH_PX)  return false;
   return true;
 }
 
-/* Linear scan; returns slot index or -1. Caller holds the mutex. */
+/* Caller holds the mutex. */
 static int32_t findSlotById(uint32_t id)
 {
   for (uint32_t i = 0; i < s_areaCount; i++) {
@@ -57,10 +50,8 @@ static int32_t findSlotById(uint32_t id)
   return -1;
 }
 
-/* Generate a non-zero id not already in use. With 32-bit random
- * draws and <=1024 entries, collisions are vanishingly rare; the
- * loop terminates almost certainly on the first iteration. Caller
- * holds the mutex. */
+/* Caller holds the mutex. With 32-bit random draws and ≤1024
+ * entries, collisions are vanishingly rare. */
 static uint32_t generateUniqueId(void)
 {
   for (;;) {
@@ -74,18 +65,14 @@ static uint32_t generateUniqueId(void)
   }
 }
 
-/* --- Init ----------------------------------------------------------------- */
-
 void HapticArea_Init(void)
 {
   s_mutex = xSemaphoreCreateMutexStatic(&s_mutexMeta);
 
-  /* RNG kernel clock on STM32H7S is hardwired to HSI48 — there's no
-   * mux through HAL_RCCEx_PeriphCLKConfig. The bootloader leaves
-   * HSI48 off, so we explicitly turn it on here before HAL_RNG_Init.
-   * USB FS also depends on HSI48 (HAL_PCD_MspInit does the same
-   * RCC_HSI48_ON dance later); HAL_RCC_OscConfig is idempotent so
-   * the second enable from the USB stack is a no-op. */
+  /* RNG kernel clock on STM32H7S is hardwired to HSI48 (no
+   * peripheral-clock mux), and the bootloader leaves HSI48 off.
+   * USB FS later does the same enable in HAL_PCD_MspInit;
+   * HAL_RCC_OscConfig is idempotent, so the duplicate is a no-op. */
   RCC_OscInitTypeDef oscInit = {0};
   oscInit.OscillatorType = RCC_OSCILLATORTYPE_HSI48;
   oscInit.HSI48State     = RCC_HSI48_ON;
@@ -100,13 +87,9 @@ void HapticArea_Init(void)
   }
 }
 
-/* --- Mode getter / setter ------------------------------------------------- */
-
 void     HapticArea_SetMode(bool enabled) { s_modeEnabled = enabled; }
 bool     HapticArea_GetMode(void)         { return s_modeEnabled; }
 uint32_t HapticArea_GetGeneration(void)   { return s_generation; }
-
-/* --- Set ------------------------------------------------------------------ */
 
 bool HapticArea_Set(touchforce_v1_HapticArea *areaInOut, uint32_t *errCodeOut)
 {
@@ -117,7 +100,6 @@ bool HapticArea_Set(touchforce_v1_HapticArea *areaInOut, uint32_t *errCodeOut)
 
   (void)xSemaphoreTake(s_mutex, portMAX_DELAY);
 
-  /* Update path: id != 0 and matches an existing slot. */
   if (areaInOut->id != 0U) {
     int32_t idx = findSlotById(areaInOut->id);
     if (idx >= 0) {
@@ -126,12 +108,10 @@ bool HapticArea_Set(touchforce_v1_HapticArea *areaInOut, uint32_t *errCodeOut)
       xSemaphoreGive(s_mutex);
       return true;
     }
-    /* id != 0 but not found — fall through to "create at this id".
-     * This makes the API symmetric: a host caching an id can
-     * always Set with that id, whether or not we still have it. */
+    /* id != 0 but not found — fall through to "create at this id"
+     * so a host can always Set against an id it still believes in. */
   }
 
-  /* Create path: append into the first unused slot. */
   if (s_areaCount >= HAPTIC_AREA_MAX_COUNT) {
     xSemaphoreGive(s_mutex);
     *errCodeOut = HAPTIC_AREA_ERR_TABLE_FULL;
@@ -140,9 +120,8 @@ bool HapticArea_Set(touchforce_v1_HapticArea *areaInOut, uint32_t *errCodeOut)
 
   uint32_t newId = (areaInOut->id != 0U) ? areaInOut->id : generateUniqueId();
 
-  /* First unused slot in [0, HAPTIC_AREA_MAX_COUNT). With compaction
-   * on Delete, the unused region is a contiguous tail at and beyond
-   * s_areaCount, so we can just take s_areas[s_areaCount]. */
+  /* Compaction on Delete keeps the unused region as a tail at
+   * s_areaCount, so the next slot is always s_areas[s_areaCount]. */
   HapticAreaSlot *slot = &s_areas[s_areaCount];
   slot->used     = true;
   slot->area     = *areaInOut;
@@ -150,14 +129,11 @@ bool HapticArea_Set(touchforce_v1_HapticArea *areaInOut, uint32_t *errCodeOut)
   s_areaCount++;
   s_generation++;
 
-  /* Reflect the assigned id back to the caller. */
   areaInOut->id = newId;
 
   xSemaphoreGive(s_mutex);
   return true;
 }
-
-/* --- Get ------------------------------------------------------------------ */
 
 bool HapticArea_Get(uint32_t id, touchforce_v1_HapticArea *areaOut)
 {
@@ -171,8 +147,6 @@ bool HapticArea_Get(uint32_t id, touchforce_v1_HapticArea *areaOut)
   return found;
 }
 
-/* --- Delete --------------------------------------------------------------- */
-
 bool HapticArea_Delete(uint32_t id)
 {
   (void)xSemaphoreTake(s_mutex, portMAX_DELAY);
@@ -181,8 +155,8 @@ bool HapticArea_Delete(uint32_t id)
     xSemaphoreGive(s_mutex);
     return false;
   }
-  /* Compact: move the last populated slot into the freed slot.
-   * Keeps iteration linear without tombstones. */
+  /* Compact: pull the last slot into the freed one so iteration
+   * stays linear without tombstones. */
   uint32_t last = s_areaCount - 1U;
   if ((uint32_t)idx != last) {
     s_areas[idx] = s_areas[last];
@@ -205,8 +179,6 @@ void HapticArea_DeleteAll(void)
   xSemaphoreGive(s_mutex);
 }
 
-/* --- GetList -------------------------------------------------------------- */
-
 void HapticArea_GetList(uint32_t *idsOut, uint32_t *countInOut)
 {
   (void)xSemaphoreTake(s_mutex, portMAX_DELAY);
@@ -219,20 +191,16 @@ void HapticArea_GetList(uint32_t *idsOut, uint32_t *countInOut)
   xSemaphoreGive(s_mutex);
 }
 
-/* --- Hit-test ------------------------------------------------------------- */
-
 touchforce_v1_HapticEffect
 HapticArea_TestRisingEdge(uint32_t panelX, uint32_t panelY)
 {
-  /* 0-tick try-take: if a CDC mutator holds the mutex, return
-   * "no fire" rather than blocking the touch loop. One dropped
-   * fire is preferable to a render-side stall. */
+  /* 0-tick try-take: drop the fire rather than block the render
+   * loop on a concurrent CDC mutator. */
   if (xSemaphoreTake(s_mutex, 0) != pdTRUE) {
     return touchforce_v1_HapticEffect_HAPTIC_EFFECT_UNSPECIFIED;
   }
 
-  /* Block beats fire on overlap: scan blocks first; any hit
-   * suppresses. */
+  /* Block beats fire on overlap — scan blocks first. */
   for (uint32_t i = 0; i < s_areaCount; i++) {
     const touchforce_v1_HapticArea *a = &s_areas[i].area;
     if (!a->enabled) continue;
@@ -243,7 +211,7 @@ HapticArea_TestRisingEdge(uint32_t panelX, uint32_t panelY)
     return touchforce_v1_HapticEffect_HAPTIC_EFFECT_UNSPECIFIED;
   }
 
-  /* No block hit — first fire-area hit wins. */
+  /* First fire-area hit wins. */
   touchforce_v1_HapticEffect chosen =
       touchforce_v1_HapticEffect_HAPTIC_EFFECT_UNSPECIFIED;
   for (uint32_t i = 0; i < s_areaCount; i++) {
@@ -259,8 +227,6 @@ HapticArea_TestRisingEdge(uint32_t panelX, uint32_t panelY)
   xSemaphoreGive(s_mutex);
   return chosen;
 }
-
-/* --- Render snapshot ------------------------------------------------------ */
 
 void HapticArea_RenderSnapshot(HapticArea_RenderEntry *entriesOut,
                                uint32_t *countInOut)

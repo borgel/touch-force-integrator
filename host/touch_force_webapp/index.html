@@ -830,6 +830,11 @@ async function refreshHapticAreas() {
 
 function drawHapticAreasOverlay(ctx, canvas) {
   ctx.lineWidth = 2;
+  const dpr = window.devicePixelRatio || 1;
+  ctx.font = `${Math.round(14 * dpr)}px monospace`;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "top";
+
   for (const a of hapticAreaMap.values()) {
     const sx = canvas.width  / DISPLAY_W_PX;
     const sy = canvas.height / DISPLAY_H_PX;
@@ -837,17 +842,35 @@ function drawHapticAreasOverlay(ctx, canvas) {
     const cy = a.rect.y0 * sy;
     const cw = (a.rect.x1 - a.rect.x0) * sx;
     const ch = (a.rect.y1 - a.rect.y0) * sy;
+
+    let strokeColor;
     if (!a.enabled) {
-      ctx.strokeStyle = "gray";
+      strokeColor = "gray";
       ctx.setLineDash([8, 4]);
     } else if (a.kind === 2 /* HAPTIC_AREA_KIND_BLOCK */) {
-      ctx.strokeStyle = "red";
+      strokeColor = "red";
       ctx.setLineDash([]);
     } else {
-      ctx.strokeStyle = "lime";
+      strokeColor = "lime";
       ctx.setLineDash([]);
     }
+    ctx.strokeStyle = strokeColor;
     ctx.strokeRect(cx, cy, cw, ch);
+
+    /* ID label inside the top-left corner of the rect, with a small
+     * filled background rectangle so the digits stay legible against
+     * the touch ellipses or canvas background. */
+    const label = `id=${a.id}`;
+    const padX = 4 * dpr;
+    const padY = 2 * dpr;
+    const metrics = ctx.measureText(label);
+    const textH  = Math.round(14 * dpr);
+    const boxW   = metrics.width + padX * 2;
+    const boxH   = textH + padY * 2;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.85)";
+    ctx.fillRect(cx, cy, boxW, boxH);
+    ctx.fillStyle = strokeColor === "lime" ? "#0a6b0a" : strokeColor;
+    ctx.fillText(label, cx + padX, cy + padY);
   }
   ctx.setLineDash([]);
 

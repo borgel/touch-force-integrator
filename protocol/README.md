@@ -37,11 +37,21 @@ See `touch_force.proto`. Top-level messages:
 | `GetUptime`        | Request → Response | 3    | empty Request; Response carries `uint32 uptime_ms`                   |
 | `SetTouchStreaming`| Request only       | 4    | fire-and-forget; bool `enabled`. Default at boot is true.            |
 | `GetTelemetry`     | Request → Response | 5    | empty Request; Response carries `streaming_events_sent` + `streaming_tx_fails` |
+| `SetHapticArea`      | Request → Response | 6    | full overwrite at `area.id`; `id == 0` ⇒ create new (random uint32 from HW RNG); Response echoes the assigned record. Errors: `3` table-full, `4` invalid rect. |
+| `GetHapticArea`      | Request → Response | 7    | by `id`; Response carries the full record or `Error{code=2}` if not found. |
+| `GetHapticAreaList`  | Request → Response | 8    | empty Request; Response carries `repeated uint32 ids` (up to 1024). |
+| `DeleteHapticArea`   | Request → Response | 9    | by `id`; Response is empty `OkResponse` or `Error{code=2}`. |
+| `DeleteAllHapticAreas`| Request → Response| 10   | empty both ways; Response is `OkResponse`. |
+| `SetHapticAreaMode`  | Request → Response | 11   | bool `enabled`; Response echoes the now-current state. Default at boot: false (every touch fires globally). |
+| `GetHapticAreaMode`  | Request → Response | 12   | empty Request; Response carries the current `enabled` bool. |
 | `TouchFrame`       | Event              | 1    | streamed per wisecoco frame when streaming enabled (see §Events)     |
 
 `Response.payload` always carries one of the command-specific responses or `ErrorResponse` (field 2, `code` + `message`). Defined error codes:
 
 - `1` — unknown command (Request payload tag the MCU doesn't recognize, or empty oneof).
+- `2` — not found (`GetHapticArea` / `DeleteHapticArea` with an unknown id).
+- `3` — table full (`SetHapticArea` with id=0 when 1024 areas already exist).
+- `4` — invalid rect (`SetHapticArea` with x0≥x1, y0≥y1, or coords past the panel: x ∈ [0, 2880], y ∈ [0, 2160]).
 
 ## Events
 
@@ -60,6 +70,26 @@ See `touch_force.proto`. Top-level messages:
 - `touch_duration` — microseconds since this id was first seen.
 
 Streaming default-on. Drop-on-busy: if the firmware's CDC TX is full when an event needs to send (5ms timeout), the event is dropped silently and `streaming_tx_fails` increments. Render path is never blocked by a slow host.
+
+## Haptic areas
+
+`HapticArea` is a host-defined rectangle that, when haptic-area mode is enabled, decides whether a rising-edge touch fires a haptic.
+
+- Coordinates are panel pixels (post-rotation, matching `TouchFinger.x/y`): x ∈ [0, 2880], y ∈ [0, 2160].
+- Rect is half-open: `x0 ≤ x < x1 && y0 ≤ y < y1`. Adjacent rects tile without ambiguous edges.
+- `kind`: `FIRE` (touch fires haptic) or `BLOCK` (touch suppresses fire on overlap). First match wins; BLOCK beats FIRE.
+- `enabled=false` excludes the area from hit-testing (stage without arming).
+- `id == 0` is the "create new" sentinel on `SetHapticArea`; stored ids are non-zero random uint32s (HW RNG).
+- `tag` is host-supplied, bounded at 32 bytes.
+
+### Modes
+
+- **disabled** (boot default): every touch rising edge fires `HAPTIC_EFFECT_DEFAULT`. Areas are ignored.
+- **enabled**: rising edge inside an enabled `FIRE` area fires; an enabled `BLOCK` area suppresses on overlap.
+
+### Phase 0 placeholder haptic
+
+`HAPTIC_EFFECT_DEFAULT` pulses LD1 (user LED) for 100 ms via a FreeRTOS one-shot timer. A burst within 100 ms extends the pulse. Real haptic hardware lands in a later phase; the enum exists so effects can be added without breaking the schema.
 
 ## nanopb caveats for host implementors
 

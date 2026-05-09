@@ -261,3 +261,271 @@ def test_link_read_events_returns_at_eof() -> None:
     lnk = link.Link(t)
     events = list(lnk.read_events())
     assert events == []
+
+
+# ---------------------------------------------------------------------------
+# Haptic-area Link methods
+# ---------------------------------------------------------------------------
+
+def _haptic_area_wire(*, id: int, tag: str, x0: int, y0: int, x1: int, y1: int,
+                       enabled: bool, kind_val: int, haptic_val: int) -> "pb.HapticArea":
+    """Helper: build and return a HapticArea protobuf message."""
+    area = pb.HapticArea()
+    area.id = id
+    area.tag = tag
+    area.rect.x0 = x0
+    area.rect.y0 = y0
+    area.rect.x1 = x1
+    area.rect.y1 = y1
+    area.enabled = enabled
+    area.kind = kind_val
+    area.haptic = haptic_val
+    return area
+
+
+def test_set_haptic_area_mode_round_trip() -> None:
+    frame = pb.Frame()
+    frame.response.request_id = 10
+    frame.response.set_haptic_area_mode.enabled = True
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+    t = _LoopTransport(wire)
+    lnk = link.Link(t, _next_id=lambda: 10)
+
+    result = lnk.set_haptic_area_mode(enabled=True)
+    assert result is True
+
+    # Verify outgoing request.
+    sent = link.cobs_decode(bytes(t.outgoing)[:-1])
+    out_frame = pb.Frame()
+    out_frame.ParseFromString(sent)
+    assert out_frame.WhichOneof("kind") == "request"
+    assert out_frame.request.request_id == 10
+    assert out_frame.request.WhichOneof("payload") == "set_haptic_area_mode"
+    assert out_frame.request.set_haptic_area_mode.enabled is True
+
+
+def test_get_haptic_area_mode_round_trip() -> None:
+    frame = pb.Frame()
+    frame.response.request_id = 11
+    frame.response.get_haptic_area_mode.enabled = False
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+    t = _LoopTransport(wire)
+    lnk = link.Link(t, _next_id=lambda: 11)
+
+    result = lnk.get_haptic_area_mode()
+    assert result is False
+
+    sent = link.cobs_decode(bytes(t.outgoing)[:-1])
+    out_frame = pb.Frame()
+    out_frame.ParseFromString(sent)
+    assert out_frame.request.WhichOneof("payload") == "get_haptic_area_mode"
+
+
+def test_add_haptic_area_round_trip() -> None:
+    # Device assigns id=0xCAFEBABE on creation.
+    area = _haptic_area_wire(
+        id=0xCAFEBABE, tag="btn1",
+        x0=10, y0=20, x1=110, y1=120,
+        enabled=True,
+        kind_val=pb.HAPTIC_AREA_KIND_FIRE,
+        haptic_val=pb.HAPTIC_EFFECT_DEFAULT,
+    )
+    frame = pb.Frame()
+    frame.response.request_id = 12
+    frame.response.set_haptic_area.area.CopyFrom(area)
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+    t = _LoopTransport(wire)
+    lnk = link.Link(t, _next_id=lambda: 12)
+
+    result = lnk.add_haptic_area(x0=10, y0=20, x1=110, y1=120,
+                                  tag="btn1", kind="fire",
+                                  enabled=True, haptic="default")
+
+    assert result["id"] == 0xCAFEBABE
+    assert result["tag"] == "btn1"
+    assert result["x0"] == 10
+    assert result["y1"] == 120
+    assert result["kind"] == "fire"
+    assert result["haptic"] == "default"
+    assert result["enabled"] is True
+
+    # Verify the outgoing request sent id=0 (new area).
+    sent = link.cobs_decode(bytes(t.outgoing)[:-1])
+    out_frame = pb.Frame()
+    out_frame.ParseFromString(sent)
+    assert out_frame.request.WhichOneof("payload") == "set_haptic_area"
+    assert out_frame.request.set_haptic_area.area.id == 0
+
+
+def test_get_haptic_area_round_trip() -> None:
+    area = _haptic_area_wire(
+        id=42, tag="zone-a",
+        x0=0, y0=0, x1=100, y1=100,
+        enabled=True,
+        kind_val=pb.HAPTIC_AREA_KIND_BLOCK,
+        haptic_val=pb.HAPTIC_EFFECT_DEFAULT,
+    )
+    frame = pb.Frame()
+    frame.response.request_id = 13
+    frame.response.get_haptic_area.area.CopyFrom(area)
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+    t = _LoopTransport(wire)
+    lnk = link.Link(t, _next_id=lambda: 13)
+
+    result = lnk.get_haptic_area(42)
+
+    assert result["id"] == 42
+    assert result["tag"] == "zone-a"
+    assert result["kind"] == "block"
+    assert result["rect"]["x1"] == 100
+
+    sent = link.cobs_decode(bytes(t.outgoing)[:-1])
+    out_frame = pb.Frame()
+    out_frame.ParseFromString(sent)
+    assert out_frame.request.WhichOneof("payload") == "get_haptic_area"
+    assert out_frame.request.get_haptic_area.id == 42
+
+
+def test_get_haptic_area_not_found_raises_remote_error() -> None:
+    frame = pb.Frame()
+    frame.response.request_id = 14
+    frame.response.error.code = 2
+    frame.response.error.message = "not found"
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+    t = _LoopTransport(wire)
+    lnk = link.Link(t, _next_id=lambda: 14)
+
+    with pytest.raises(link.RemoteError) as exc_info:
+        lnk.get_haptic_area(999)
+    assert exc_info.value.code == 2
+    assert "not found" in str(exc_info.value)
+
+
+def test_list_haptic_areas_round_trip() -> None:
+    frame = pb.Frame()
+    frame.response.request_id = 15
+    frame.response.get_haptic_area_list.ids.extend([1, 2, 3])
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+    t = _LoopTransport(wire)
+    lnk = link.Link(t, _next_id=lambda: 15)
+
+    result = lnk.list_haptic_areas()
+    assert result == [1, 2, 3]
+
+    sent = link.cobs_decode(bytes(t.outgoing)[:-1])
+    out_frame = pb.Frame()
+    out_frame.ParseFromString(sent)
+    assert out_frame.request.WhichOneof("payload") == "get_haptic_area_list"
+
+
+def test_delete_haptic_area_round_trip() -> None:
+    frame = pb.Frame()
+    frame.response.request_id = 16
+    frame.response.delete_haptic_area.SetInParent()
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+    t = _LoopTransport(wire)
+    lnk = link.Link(t, _next_id=lambda: 16)
+
+    result = lnk.delete_haptic_area(77)
+    assert result is None
+
+    sent = link.cobs_decode(bytes(t.outgoing)[:-1])
+    out_frame = pb.Frame()
+    out_frame.ParseFromString(sent)
+    assert out_frame.request.WhichOneof("payload") == "delete_haptic_area"
+    assert out_frame.request.delete_haptic_area.id == 77
+
+
+def test_delete_haptic_area_not_found_raises_remote_error() -> None:
+    frame = pb.Frame()
+    frame.response.request_id = 17
+    frame.response.error.code = 2
+    frame.response.error.message = "not found"
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+    t = _LoopTransport(wire)
+    lnk = link.Link(t, _next_id=lambda: 17)
+
+    with pytest.raises(link.RemoteError) as exc_info:
+        lnk.delete_haptic_area(999)
+    assert exc_info.value.code == 2
+
+
+def test_delete_all_haptic_areas_round_trip() -> None:
+    frame = pb.Frame()
+    frame.response.request_id = 18
+    frame.response.delete_all_haptic_areas.SetInParent()
+    wire = link.cobs_encode(frame.SerializeToString()) + b"\x00"
+
+    t = _LoopTransport(wire)
+    lnk = link.Link(t, _next_id=lambda: 18)
+
+    result = lnk.delete_all_haptic_areas()
+    assert result is None
+
+    sent = link.cobs_decode(bytes(t.outgoing)[:-1])
+    out_frame = pb.Frame()
+    out_frame.ParseFromString(sent)
+    assert out_frame.request.WhichOneof("payload") == "delete_all_haptic_areas"
+
+
+def test_update_haptic_area_does_get_then_set() -> None:
+    # Fake get_haptic_area response.
+    area = _haptic_area_wire(
+        id=55, tag="orig",
+        x0=0, y0=0, x1=50, y1=50,
+        enabled=True,
+        kind_val=pb.HAPTIC_AREA_KIND_FIRE,
+        haptic_val=pb.HAPTIC_EFFECT_DEFAULT,
+    )
+    get_frame = pb.Frame()
+    get_frame.response.request_id = 20
+    get_frame.response.get_haptic_area.area.CopyFrom(area)
+    get_wire = link.cobs_encode(get_frame.SerializeToString()) + b"\x00"
+
+    # Fake set_haptic_area response (updated tag).
+    updated_area = _haptic_area_wire(
+        id=55, tag="updated",
+        x0=0, y0=0, x1=50, y1=50,
+        enabled=True,
+        kind_val=pb.HAPTIC_AREA_KIND_FIRE,
+        haptic_val=pb.HAPTIC_EFFECT_DEFAULT,
+    )
+    set_frame = pb.Frame()
+    set_frame.response.request_id = 21
+    set_frame.response.set_haptic_area.area.CopyFrom(updated_area)
+    set_wire = link.cobs_encode(set_frame.SerializeToString()) + b"\x00"
+
+    # Concatenate both responses; IDs increment as 20, 21.
+    id_seq = iter([20, 21])
+    t = _LoopTransport(get_wire + set_wire)
+    lnk = link.Link(t, _next_id=lambda: next(id_seq))
+
+    result = lnk.update_haptic_area(55, tag="updated")
+
+    assert result["id"] == 55
+    assert result["tag"] == "updated"
+
+    # Verify two outgoing frames: Get first, Set second.
+    raw_out = bytes(t.outgoing)
+    # Split on 0x00 delimiters (each frame ends with 0x00).
+    frames_raw = [b for b in raw_out.split(b"\x00") if b]
+    assert len(frames_raw) == 2
+
+    get_req = pb.Frame()
+    get_req.ParseFromString(link.cobs_decode(frames_raw[0]))
+    assert get_req.request.WhichOneof("payload") == "get_haptic_area"
+    assert get_req.request.get_haptic_area.id == 55
+
+    set_req = pb.Frame()
+    set_req.ParseFromString(link.cobs_decode(frames_raw[1]))
+    assert set_req.request.WhichOneof("payload") == "set_haptic_area"
+    assert set_req.request.set_haptic_area.area.tag == "updated"
+    assert set_req.request.set_haptic_area.area.id == 55

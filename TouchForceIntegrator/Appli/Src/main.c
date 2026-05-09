@@ -11,6 +11,7 @@
 #include "stm32h7s78_discovery_lcd.h"
 #include "usbh_hid_wisecoco.h"
 #include "protocol_task.h"
+#include "haptic_area.h"
 #include "cobs.h"
 #include "pb_encode.h"
 #include "touch_force.pb.h"
@@ -95,26 +96,13 @@ size_t __write(int file, unsigned char const *ptr, size_t len);
 static StaticSemaphore_t s_vblankSemMeta;
 static SemaphoreHandle_t s_vblankSem;
 
-/* All touchforce.v1 streaming state in one place. Individual
- * fields keep their volatile qualifiers; the struct itself is
- * static.
- *
- * Concurrency:
- *   - .enabled      — written by _CDC_Task via Touch_SetStreaming,
- *                     read by _Touch_Task. Single-byte volatile
- *                     access is atomic on Cortex-M.
- *   - .eventsSent / .txFails — written by _Touch_Task in
- *                     Touch_StreamFrame, read by _CDC_Task via
- *                     Touch_GetTelemetry. Reads may be torn for a
- *                     few microseconds; harmless for monotonic
- *                     counters.
- *   - .eventBuf / .eventTxBuf — only touched by _Touch_Task inside
- *                     Touch_StreamFrame, no contention.
- *
- * Buffer sizes are derived from touchforce_v1_Frame_size (worst-case
- * encoded Frame carrying a TouchFrameEvent with 10 fingers, currently
- * 418 bytes) plus COBS overhead and the 0x00 delimiter. 512 covers
- * the worst case with margin. */
+/* Streaming state. Concurrency: .enabled is single-byte volatile
+ * (atomic on Cortex-M); .eventsSent/.txFails may be torn for a few
+ * microseconds when sampled, harmless for monotonic counters; the
+ * buffers are touched only by _Touch_Task. Buffer size covers a
+ * TouchFrameEvent with 10 fingers (~150 bytes encoded) wrapped in
+ * a Frame, plus COBS overhead — not touchforce_v1_Frame_size, which
+ * post-haptic-areas is sized to the worst-case oneof variant. */
 #define PROTO_EVENT_BUF_BYTES   512U
 #define PROTO_EVENT_TX_BYTES    512U
 
@@ -128,23 +116,38 @@ static struct {
   .enabled = true,
 };
 
-/* Right-side status panel. The touch render area uses the left
- * 640 px of the 800 px LCD; this strip fills the remaining 160 px
- * on layer 1. We track what's currently painted and only repaint
- * when something changes. Layer 1 is double-buffered, so a state
- * change has to be painted onto BOTH buffers before they agree —
- * s_statusDirty starts at 2 on a change and decrements per render. */
+/* Right-side status panel: 160 px strip on layer 1, repainted only
+ * on change. Layer 1 is double-buffered so a change repaints both
+ * buffers before settling — s_statusDirty starts at 2 and decrements
+ * per render. */
 #define STATUS_X0       640U
 #define STATUS_W        160U
 #define STATUS_H        480U
 #define STATUS_LED_R     12U
 
 static struct {
-  bool    hostUp;
-  bool    devUp;
-  uint8_t fingers;
+  bool hostUp;
+  bool devUp;
+  bool hapticOn;
 } s_displayedStatus;
 static uint8_t s_statusDirty;
+
+/* Layer 0: white touch area + haptic-area outlines. Repainted only
+ * when HapticArea_GetGeneration() changes; like s_statusDirty, the
+ * counter starts at 2 to cover both back buffers. */
+static uint8_t  s_layer0Dirty;
+static uint32_t s_lastHapticAreaGeneration;
+
+/* Per-finger rising-edge tracker. wisecoco finger ids are stable
+ * across a single touch (lift+redown gets a new id), so id equality
+ * is enough to detect "this finger was already touching last frame". */
+static uint8_t s_prevTouchingIds[MAX_TOUCHES];
+static uint8_t s_prevTouchingCount;
+
+/* HAL_GetTick value at which LD1 should turn off, or 0 when no
+ * pulse is pending. Re-arming during an active pulse extends the
+ * on-time so a burst reads as a single sustained pulse. */
+static volatile uint32_t s_ledOffDeadline;
 
 void HAL_LTDC_LineEventCallback(LTDC_HandleTypeDef *hltdc)
 {
@@ -180,6 +183,7 @@ int main(void)
    * tasks that wait on them. Both are static, no scheduler needed. */
   USBH_HID_WisecocoAppInit();
   USBH_HostEvent_AppInit();
+  HapticArea_Init();
 
   MX_USBPD_Init();
 
@@ -253,26 +257,16 @@ void _USB_Task(void *argument)
   }
 }
 
-/* LCD rendering task. Brings up the LCD with two layers (static
- * background on layer 0, animated dots on layer 1 with color keying
- * for transparency), then waits on the wisecoco frame-published
- * semaphore and redraws on each new frame. */
-/* Clear the touch-preview region to the chroma-key color (so layer 0
- * shows through), then draw a 5x5 dot for each currently-touching
- * finger. Caller does the swap. */
+/* Clear the touch area to KEY (transparent over layer 0) and draw
+ * a 5x5 dot per currently-touching finger. Caller does the swap. */
 static void Touch_RenderTouchDots(const struct USBH_LatestWisecocoData *snapshot)
 {
-  /* Constants are intentionally duplicated from _Touch_Task's init
-   * block: KEY_565 also appears there for the layer-1 transparent
-   * clear at startup. The handful of touch-area constants are local
-   * to the per-frame work. */
   const uint16_t TOUCH_W  = 640;
   const uint16_t TOUCH_H  = 480;
   const uint16_t TOUCH_X0 = 0;
   const uint16_t TOUCH_Y0 = 0;
   const uint32_t KEY_565  = LCD_COLOR_RGB565_MAGENTA;
 
-  // Clear only the touch area to KEY (transparent), erasing last frame's dots.
   UTIL_LCD_FillRect(TOUCH_X0, TOUCH_Y0, TOUCH_W, TOUCH_H, KEY_565);
 
   for (unsigned i = 0; i < snapshot->liveTouches; i++) {
@@ -285,34 +279,32 @@ static void Touch_RenderTouchDots(const struct USBH_LatestWisecocoData *snapshot
   }
 }
 
-/* Sample USB host link, USB device link, and finger count, and bump
- * s_statusDirty if any of them have changed since the last paint.
- * Called every render-loop iteration, including the timeout path,
- * so USB plug events refresh the panel even when the touchscreen
- * is idle. */
-static void Touch_UpdateStatus(unsigned tipsTouchedDown)
+/* Sample status sources and bump s_statusDirty on change. Runs even
+ * on the WaitFrame-timeout path so USB plug events refresh the panel
+ * while the touchscreen is idle. */
+static void Touch_UpdateStatus(void)
 {
-  bool    hostUp  = (Appli_state == APPLICATION_READY);
-  bool    devUp   = (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED);
+  bool hostUp   = (Appli_state == APPLICATION_READY);
+  bool devUp    = (hUsbDeviceFS.dev_state == USBD_STATE_CONFIGURED);
+  bool hapticOn = HapticArea_GetMode();
 
-  if (hostUp  != s_displayedStatus.hostUp ||
-      devUp   != s_displayedStatus.devUp)
+  if (hostUp   != s_displayedStatus.hostUp ||
+      devUp    != s_displayedStatus.devUp  ||
+      hapticOn != s_displayedStatus.hapticOn)
   {
-    s_displayedStatus.hostUp  = hostUp;
-    s_displayedStatus.devUp   = devUp;
+    s_displayedStatus.hostUp   = hostUp;
+    s_displayedStatus.devUp    = devUp;
+    s_displayedStatus.hapticOn = hapticOn;
     s_statusDirty = 2U;  /* repaint both layer-1 buffers */
   }
 }
 
-/* Paint the right-side status strip onto the current layer-1 draw
- * buffer. Background is the color-key (transparent over layer 0's
- * black), with white labels and red/green LED circles. Caller does
- * the swap. */
+/* Paint the status strip onto the current layer-1 draw buffer.
+ * Caller does the swap. */
 static void Touch_DrawStatus(void)
 {
   const uint32_t KEY_565 = LCD_COLOR_RGB565_MAGENTA;
 
-  /* Clear strip to transparent, erasing last paint's values. */
   UTIL_LCD_FillRect(STATUS_X0, 0, STATUS_W, STATUS_H, KEY_565);
 
   UTIL_LCD_SetFont(&Font24);
@@ -334,35 +326,117 @@ static void Touch_DrawStatus(void)
                       s_displayedStatus.devUp
                         ? UTIL_LCD_COLOR_GREEN
                         : UTIL_LCD_COLOR_RED);
+
+  UTIL_LCD_DisplayStringAt(STATUS_X0 + 12U, 180U,
+                           (uint8_t *)"Areas", LEFT_MODE);
+  UTIL_LCD_FillCircle(STATUS_X0 + 130U, 192U, STATUS_LED_R,
+                      s_displayedStatus.hapticOn
+                        ? UTIL_LCD_COLOR_GREEN
+                        : UTIL_LCD_COLOR_RED);
 }
 
-/* Layer-1 double-buffer swap dance.
- *
- * SwapVisibleBuffer queues a layer-address change that the LTDC
- * applies at the NEXT VBLANK (RELOAD_VERTICAL_BLANKING was set at
- * init). Until that VBLANK, the LTDC is still scanning the OLD
- * buffer, so SwapDrawBuffer would redirect the next iteration's
- * draws to the still-being-scanned buffer and we'd tear.
- *
- * Drain any stale give from earlier in the frame, then wait for
- * the next VBLANK to confirm the LTDC has actually picked up the
- * new visible buffer. SwapDrawBuffer is then safe. */
-static void Touch_PresentLayer1(void)
+static void Touch_DrawRectOutline(uint32_t x, uint32_t y,
+                                  uint32_t w, uint32_t h, uint32_t color)
 {
-  BSP_LCD_SwapVisibleBuffer(0, BSP_LCD_LAYER_FOREGROUND);
+  UTIL_LCD_FillRect(x,           y,          w,  2U, color);
+  UTIL_LCD_FillRect(x,           y + h - 2U, w,  2U, color);
+  UTIL_LCD_FillRect(x,           y,          2U, h,  color);
+  UTIL_LCD_FillRect(x + w - 2U,  y,          2U, h,  color);
+}
+
+static void Touch_DrawDashedRect(uint32_t x, uint32_t y,
+                                 uint32_t w, uint32_t h, uint32_t color)
+{
+  const uint32_t ON  = 8U;
+  const uint32_t OFF = 4U;
+  for (uint32_t i = 0; i < w; ) {
+    uint32_t seg = (i + ON <= w) ? ON : (w - i);
+    UTIL_LCD_FillRect(x + i, y,          seg, 2U, color);
+    UTIL_LCD_FillRect(x + i, y + h - 2U, seg, 2U, color);
+    i += seg + OFF;
+  }
+  /* Skip 2 px corner caps already drawn by the top+bottom edges. */
+  if (h > 4U) {
+    for (uint32_t j = 2U; j < h - 2U; ) {
+      uint32_t seg = (j + ON <= h - 2U) ? ON : (h - 2U - j);
+      UTIL_LCD_FillRect(x,          y + j, 2U, seg, color);
+      UTIL_LCD_FillRect(x + w - 2U, y + j, 2U, seg, color);
+      j += seg + OFF;
+    }
+  }
+}
+
+/* Repaint layer 0: white touch area, then all area outlines. The
+ * right-side strip stays untouched — it was painted black in
+ * Touch_InitLCD and nothing else lands there, so a full-screen
+ * clear is unnecessary (and on a brownout-prone board, undesirable
+ * DMA2D current draw). Restores layer 1 as active on exit. */
+static void Touch_RenderLayer0(void)
+{
+  const uint32_t TOUCH_W  = 640U;
+  const uint32_t TOUCH_H  = 480U;
+  const uint32_t TOUCH_X0 = 0U;
+  const uint32_t TOUCH_Y0 = 0U;
+
+  BSP_LCD_SetActiveLayer(0, 0);
+  UTIL_LCD_FillRect(TOUCH_X0, TOUCH_Y0, TOUCH_W, TOUCH_H,
+                    UTIL_LCD_COLOR_WHITE);
+
+  /* .bss, not the 2 KB task stack — sizeof(entries) is ~24 KB. */
+  static HapticArea_RenderEntry entries[HAPTIC_AREA_MAX_COUNT];
+  uint32_t count = (uint32_t)HAPTIC_AREA_MAX_COUNT;
+  HapticArea_RenderSnapshot(entries, &count);
+
+  for (uint32_t i = 0; i < count; i++) {
+    const HapticArea_RenderEntry *e = &entries[i];
+    /* Panel -> LCD pixel: ROTATE_90 swaps the axes, so panel x
+     * ranges over DISP_HEIGHT_PX and panel y over DISP_WIDTH_PX. */
+    uint32_t lx = (e->rect.x0 * TOUCH_W) / (uint32_t)DISP_HEIGHT_PX;
+    uint32_t ly = (e->rect.y0 * TOUCH_H) / (uint32_t)DISP_WIDTH_PX;
+    uint32_t lw = ((e->rect.x1 - e->rect.x0) * TOUCH_W) / (uint32_t)DISP_HEIGHT_PX;
+    uint32_t lh = ((e->rect.y1 - e->rect.y0) * TOUCH_H) / (uint32_t)DISP_WIDTH_PX;
+    if (lw < 2U || lh < 2U) continue;
+
+    if (!e->enabled) {
+      Touch_DrawDashedRect(lx, ly, lw, lh, UTIL_LCD_COLOR_GRAY);
+    } else if (e->kind == touchforce_v1_HapticAreaKind_HAPTIC_AREA_KIND_BLOCK) {
+      Touch_DrawRectOutline(lx, ly, lw, lh, UTIL_LCD_COLOR_RED);
+    } else {
+      Touch_DrawRectOutline(lx, ly, lw, lh, UTIL_LCD_COLOR_GREEN);
+    }
+  }
+
+  /* Layer-1 work later in the loop expects active layer == 1. */
+  BSP_LCD_SetActiveLayer(0, 1);
+}
+
+/* Swap whichever layers were freshly drawn. Both layers reload at
+ * the same VBLANK (RELOAD_VERTICAL_BLANKING was set at init), so
+ * one wait covers both. */
+static void Touch_PresentLayers(bool swapL0, bool swapL1)
+{
+  if (swapL0) BSP_LCD_SwapVisibleBuffer(0, BSP_LCD_LAYER_BACKGROUND);
+  if (swapL1) BSP_LCD_SwapVisibleBuffer(0, BSP_LCD_LAYER_FOREGROUND);
+
+  /* Drain stale gives, then wait for the next VBLANK to confirm
+   * the LTDC has picked up the new visible buffer(s). */
   (void)xSemaphoreTake(s_vblankSem, 0);
   (void)xSemaphoreTake(s_vblankSem, pdMS_TO_TICKS(20));
-  BSP_LCD_SwapDrawBuffer(0, BSP_LCD_LAYER_FOREGROUND);
+
+  if (swapL0) BSP_LCD_SwapDrawBuffer(0, BSP_LCD_LAYER_BACKGROUND);
+  if (swapL1) BSP_LCD_SwapDrawBuffer(0, BSP_LCD_LAYER_FOREGROUND);
 }
 
-/* Build a Frame{Event{TouchFrameEvent}} from snap, encode it via
- * nanopb into s_streaming.eventBuf, COBS-encode that into s_streaming.eventTxBuf with
- * a trailing 0x00, and CDC_Write it with a 5ms timeout. Drops on
- * any non-OK status (host slow / disconnected / encode bug) and
- * bumps the corresponding counter so GetTelemetry can report it. */
+/* Encode a TouchFrameEvent into a COBS-framed CDC packet and write
+ * it with a 5 ms timeout (drop on busy: host slow, disconnected, or
+ * encode bug all bump txFails for GetTelemetry). */
 static void Touch_StreamFrame(const struct USBH_LatestWisecocoData *snap)
 {
-  touchforce_v1_Frame frame = touchforce_v1_Frame_init_zero;
+  /* Static (BSS) — touchforce_v1_Frame is ~6 KB worst-case per
+   * the GetHapticAreaListResponse oneof variant, far past the 2 KB
+   * task stack. Only _Touch_Task calls this, so no concurrency. */
+  static touchforce_v1_Frame frame;
+  memset(&frame, 0, sizeof(frame));
   frame.which_kind = touchforce_v1_Frame_event_tag;
 
   touchforce_v1_Event *event = &frame.kind.event;
@@ -391,9 +465,6 @@ static void Touch_StreamFrame(const struct USBH_LatestWisecocoData *snap)
 
   pb_ostream_t os = pb_ostream_from_buffer(s_streaming.eventBuf, sizeof(s_streaming.eventBuf));
   if (!pb_encode(&os, touchforce_v1_Frame_fields, &frame)) {
-    /* Encoder hit a logic bug or insufficient buffer. The buffer
-     * is sized from Frame_size + slack, so this should be a hard
-     * sizing-bug signal — count it and drop. */
     s_streaming.txFails++;
     return;
   }
@@ -416,10 +487,6 @@ static void Touch_StreamFrame(const struct USBH_LatestWisecocoData *snap)
   }
 }
 
-/* One-shot LCD setup: panel init, brightness, double-buffer enable
- * for both layers, VBLANK-line interrupt arm, color-key, layer-0
- * background draw, and layer-1 transparent clear. Called once from
- * _Touch_Task before its render loop begins. */
 static void Touch_InitLCD(void)
 {
   int res;
@@ -463,7 +530,8 @@ static void Touch_InitLCD(void)
   const uint32_t KEY_888 = 0x00FF00FFU;
   BSP_LCD_SetColorKeying(0, 1, KEY_888);
 
-  // ---- Layer 0 (background): drawn ONCE. ----
+  /* Layer 0 baseline. Touch_RenderLayer0 may repaint the touch-area
+   * portion later; the right strip stays this initial black. */
   BSP_LCD_SetActiveLayer(0, 0);
   for (int i = 0; i < 2; i++) {
     UTIL_LCD_Clear(UTIL_LCD_COLOR_BLACK);
@@ -481,48 +549,119 @@ static void Touch_InitLCD(void)
   }
 }
 
+/* Drive LD1 on and arm the shutoff deadline. The actual off happens
+ * when the touch-task loop sees the deadline elapse. Non-blocking. */
+static void Haptic_Fire(touchforce_v1_HapticEffect effect)
+{
+  if (effect != touchforce_v1_HapticEffect_HAPTIC_EFFECT_DEFAULT) {
+    return;
+  }
+  BSP_LED_On(LD1);
+  s_ledOffDeadline = HAL_GetTick() + 100U;
+}
+
 void _Touch_Task(void *argument)
 {
   (void)argument;
   Touch_InitLCD();
 
-  /* Force the initial status paint so the panel is visible on boot
-   * even if the sampled state happens to match the all-zero default
-   * of s_displayedStatus. */
-  s_statusDirty = 2U;
+  BSP_LED_Init(LD1);
 
-  /* lastSnapshot is kept across iterations so the timeout path can
-   * still resample the previous finger count for the status check
-   * (no new frame == count unchanged). */
+  /* Force initial paints so both layers render on the first wake
+   * even when the sampled state matches s_displayedStatus's all-zero
+   * default and HapticArea_GetGeneration() is still 0. */
+  s_statusDirty = 2U;
+  s_layer0Dirty = 2U;
+
+  /* Persisted across iterations so a status-only repaint (no new
+   * touch frame) can still re-render dots from the last known state. */
   static struct USBH_LatestWisecocoData lastSnapshot;
   for (;;) {
     struct USBH_LatestWisecocoData snapshot;
-    /* 250 ms timeout, not HAL_MAX_DELAY, so USB plug events refresh
-     * the status panel while the touchscreen is idle (no frames
-     * published). */
-    bool gotFrame = USBH_HID_WisecocoWaitFrame(&snapshot, pdMS_TO_TICKS(250));
+
+    /* LED-off deadline. Checked before WaitFrame and used to shrink
+     * the timeout so the LED can shut off near 100 ms even on a
+     * single tap with no follow-up touch frames to wake us. */
+    uint32_t timeoutMs = 250U;
+    if (s_ledOffDeadline != 0U) {
+      uint32_t now = HAL_GetTick();
+      if ((int32_t)(now - s_ledOffDeadline) >= 0) {
+        BSP_LED_Off(LD1);
+        s_ledOffDeadline = 0U;
+      } else {
+        uint32_t remainingMs = s_ledOffDeadline - now;
+        if (remainingMs < timeoutMs) timeoutMs = remainingMs;
+      }
+    }
+
+    /* Finite timeout (not HAL_MAX_DELAY) so USB plug events refresh
+     * the status panel while the touchscreen is idle. */
+    bool gotFrame = USBH_HID_WisecocoWaitFrame(&snapshot, pdMS_TO_TICKS(timeoutMs));
     if (gotFrame) {
       lastSnapshot = snapshot;
     }
 
-    Touch_UpdateStatus(lastSnapshot.tipsTouchedDown);
+    Touch_UpdateStatus();
 
-    /* Both layer-1 buffers consistent and no new touch data: skip
-     * the swap so we don't waste a VBLANK wait. */
-    if (!gotFrame && s_statusDirty == 0U) {
+    /* Rising-edge detection: any id present now and absent in
+     * s_prevTouchingIds is a touchdown event. */
+    if (gotFrame) {
+      for (unsigned i = 0; i < snapshot.liveTouches; i++) {
+        const struct USBH_WCSingleFinger *f = &snapshot.fingers[i];
+        if (!f->touching) continue;
+
+        bool wasTouching = false;
+        for (uint8_t j = 0; j < s_prevTouchingCount; j++) {
+          if (s_prevTouchingIds[j] == f->id) {
+            wasTouching = true;
+            break;
+          }
+        }
+        if (wasTouching) continue;
+
+        if (!HapticArea_GetMode()) {
+          /* mode=disabled: every rising edge fires the default. */
+          Haptic_Fire(touchforce_v1_HapticEffect_HAPTIC_EFFECT_DEFAULT);
+        } else {
+          touchforce_v1_HapticEffect hit =
+              HapticArea_TestRisingEdge((uint32_t)f->x, (uint32_t)f->y);
+          if (hit != touchforce_v1_HapticEffect_HAPTIC_EFFECT_UNSPECIFIED) {
+            Haptic_Fire(hit);
+          }
+        }
+      }
+
+      s_prevTouchingCount = 0U;
+      for (unsigned i = 0; i < snapshot.liveTouches; i++) {
+        const struct USBH_WCSingleFinger *f = &snapshot.fingers[i];
+        if (f->touching && s_prevTouchingCount < MAX_TOUCHES) {
+          s_prevTouchingIds[s_prevTouchingCount++] = f->id;
+        }
+      }
+    }
+
+    /* Generation change → repaint both layer-0 buffers. */
+    uint32_t curGen = HapticArea_GetGeneration();
+    if (curGen != s_lastHapticAreaGeneration) {
+      s_lastHapticAreaGeneration = curGen;
+      s_layer0Dirty = 2U;
+    }
+
+    bool needL1 = gotFrame || s_statusDirty > 0U;
+    bool needL0 = s_layer0Dirty > 0U;
+    if (!needL1 && !needL0) {
       continue;
     }
 
-    /* Always re-render dots before swapping: the buffer we're about
-     * to draw into may hold stale dot positions from two frames
-     * ago, and the status-only repaint path doesn't otherwise touch
-     * the dot region. */
-    Touch_RenderTouchDots(&lastSnapshot);
-    if (s_statusDirty > 0U) {
-      Touch_DrawStatus();
-      s_statusDirty--;
+    if (needL1) {
+      Touch_RenderTouchDots(&lastSnapshot);
+      if (s_statusDirty > 0U) { Touch_DrawStatus(); s_statusDirty--; }
     }
-    Touch_PresentLayer1();
+    if (needL0) {
+      Touch_RenderLayer0();
+      s_layer0Dirty--;
+    }
+    Touch_PresentLayers(needL0, needL1);
 
     if (gotFrame && s_streaming.enabled) {
       Touch_StreamFrame(&snapshot);
@@ -530,17 +669,15 @@ void _Touch_Task(void *argument)
   }
 }
 
-/* Drives the touchforce.v1 serial protocol over USB CDC. Runs the
- * COBS frame accumulator + nanopb dispatcher forever after the host
- * has enumerated the device. */
+/* Drives the touchforce.v1 serial protocol over USB CDC after the
+ * host has enumerated the device. */
 void _CDC_Task(void *argument)
 {
   (void)argument;
 
-  /* MX_USB_DEVICE_Init runs from _USB_Task and calls CDC_AppInit before
-   * starting the USB stack, so by the time the host has enumerated the
-   * device the FreeRTOS objects backing CDC_Read / CDC_Write definitely
-   * exist.  hUsbDeviceFS lives in usb_device.c. */
+  /* By the time dev_state == CONFIGURED, MX_USB_DEVICE_Init (run from
+   * _USB_Task) has already called CDC_AppInit, so the FreeRTOS objects
+   * backing CDC_Read / CDC_Write exist. */
   extern USBD_HandleTypeDef hUsbDeviceFS;
 
   while (hUsbDeviceFS.dev_state != USBD_STATE_CONFIGURED)
@@ -559,18 +696,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
   }
 }
 
-/* Toggle touch streaming. Called from the protocol_task.c dispatch
- * for SetTouchStreaming. Single byte write, atomic on Cortex-M. */
+/* Single-byte volatile write — atomic on Cortex-M. */
 void Touch_SetStreaming(bool enabled)
 {
   s_streaming.enabled = enabled;
 }
 
-/* Read the streaming telemetry counters. Called from protocol_task.c
- * when handling GetTelemetry. The two reads are sequenced but not
- * atomic relative to _Touch_Task's increments — a torn value just
- * looks like a counter from a few microseconds earlier, which is fine
- * for monotonic counters. */
+/* Two non-atomic reads against concurrent increments in _Touch_Task.
+ * A torn value reads as a slightly stale monotonic counter, fine. */
 void Touch_GetTelemetry(uint32_t *sent, uint32_t *fails)
 {
   *sent  = s_streaming.eventsSent;

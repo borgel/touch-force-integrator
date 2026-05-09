@@ -9,6 +9,26 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
+/* Enum definitions */
+/* Effect to play when a fire-kind haptic area is hit. Phase 0 has
+ only HAPTIC_EFFECT_DEFAULT, mapped to a 100 ms LD1 pulse on the
+ H7S78-DK. The enum exists so future effects (short, long, click)
+ can land without a schema break. */
+typedef enum _touchforce_v1_HapticEffect {
+    touchforce_v1_HapticEffect_HAPTIC_EFFECT_UNSPECIFIED = 0,
+    touchforce_v1_HapticEffect_HAPTIC_EFFECT_DEFAULT = 1
+} touchforce_v1_HapticEffect;
+
+/* Whether a haptic area fires a haptic on touch (FIRE) or
+ suppresses one in mode=enabled (BLOCK). Disabled areas (the
+ HapticArea.enabled flag is false) are excluded from hit-testing
+ regardless of kind. */
+typedef enum _touchforce_v1_HapticAreaKind {
+    touchforce_v1_HapticAreaKind_HAPTIC_AREA_KIND_UNSPECIFIED = 0,
+    touchforce_v1_HapticAreaKind_HAPTIC_AREA_KIND_FIRE = 1,
+    touchforce_v1_HapticAreaKind_HAPTIC_AREA_KIND_BLOCK = 2
+} touchforce_v1_HapticAreaKind;
+
 /* Struct definitions */
 typedef struct _touchforce_v1_ErrorResponse {
     uint32_t code;
@@ -37,29 +57,6 @@ typedef struct _touchforce_v1_GetTelemetryRequest {
     char dummy_field;
 } touchforce_v1_GetTelemetryRequest;
 
-/* Host -> MCU command messages.
-
- Conventions (v2-relaxed from v1):
-   - request_id: opaque uint32 chosen by the host, echoed by the
-     MCU in Response.request_id when a Response is sent. SHOULD
-     be non-zero (proto3 elides zero defaults on the wire). Some
-     commands are fire-and-forget and produce no Response; for
-     those the host doesn't track the id.
-   - Field 2 in both Request and Response is reserved for
-     Response.error. Command oneof slots start at field 3.
-   - Parallel field numbers across Request and Response when
-     both messages have the slot. Gaps in either oneof are
-     acceptable for fire-and-forget commands. */
-typedef struct _touchforce_v1_Request {
-    uint32_t request_id;
-    pb_size_t which_payload;
-    union _touchforce_v1_Request_payload {
-        touchforce_v1_GetUptimeRequest get_uptime;
-        touchforce_v1_SetTouchStreamingRequest set_touch_streaming;
-        touchforce_v1_GetTelemetryRequest get_telemetry;
-    } payload;
-} touchforce_v1_Request;
-
 typedef struct _touchforce_v1_GetTelemetryResponse {
     /* Total TouchFrameEvents successfully written to USB CDC since
  boot. Wraps after ~2 years at 60 Hz. */
@@ -69,19 +66,6 @@ typedef struct _touchforce_v1_GetTelemetryResponse {
  this counter. */
     uint32_t streaming_tx_fails;
 } touchforce_v1_GetTelemetryResponse;
-
-/* MCU -> host reply messages. Always carries the same request_id
- the host sent. */
-typedef struct _touchforce_v1_Response {
-    uint32_t request_id;
-    pb_size_t which_payload;
-    union _touchforce_v1_Response_payload {
-        touchforce_v1_ErrorResponse error;
-        touchforce_v1_GetUptimeResponse get_uptime;
-        /* 4: gap — set_touch_streaming is fire-and-forget */
-        touchforce_v1_GetTelemetryResponse get_telemetry;
-    } payload;
-} touchforce_v1_Response;
 
 typedef struct _touchforce_v1_TouchFinger {
     /* Arbitrary id, stays constant to track this finger DURING a
@@ -126,6 +110,136 @@ typedef struct _touchforce_v1_Event {
     } payload;
 } touchforce_v1_Event;
 
+/* Half-open rectangle in panel-resolution coordinates
+ (post-rotation, matching wisecoco TouchFinger.x/y). Convention:
+ x0 <= x < x1 && y0 <= y < y1, so adjacent rectangles tile
+ without ambiguous edge ownership. */
+typedef struct _touchforce_v1_HapticAreaRect {
+    uint32_t x0;
+    uint32_t y0;
+    uint32_t x1;
+    uint32_t y1;
+} touchforce_v1_HapticAreaRect;
+
+/* One haptic area record. id == 0 is reserved as the "create new"
+ sentinel on Set requests; all stored ids are non-zero. */
+typedef struct _touchforce_v1_HapticArea {
+    uint32_t id;
+    char tag[33];
+    bool has_rect;
+    touchforce_v1_HapticAreaRect rect;
+    bool enabled;
+    touchforce_v1_HapticAreaKind kind;
+    touchforce_v1_HapticEffect haptic;
+} touchforce_v1_HapticArea;
+
+typedef struct _touchforce_v1_OkResponse {
+    char dummy_field;
+} touchforce_v1_OkResponse;
+
+typedef struct _touchforce_v1_SetHapticAreaRequest {
+    bool has_area;
+    touchforce_v1_HapticArea area;
+} touchforce_v1_SetHapticAreaRequest;
+
+typedef struct _touchforce_v1_SetHapticAreaResponse {
+    bool has_area;
+    touchforce_v1_HapticArea area;
+} touchforce_v1_SetHapticAreaResponse;
+
+typedef struct _touchforce_v1_GetHapticAreaRequest {
+    uint32_t id;
+} touchforce_v1_GetHapticAreaRequest;
+
+typedef struct _touchforce_v1_GetHapticAreaResponse {
+    bool has_area;
+    touchforce_v1_HapticArea area;
+} touchforce_v1_GetHapticAreaResponse;
+
+typedef struct _touchforce_v1_GetHapticAreaListRequest {
+    char dummy_field;
+} touchforce_v1_GetHapticAreaListRequest;
+
+typedef struct _touchforce_v1_GetHapticAreaListResponse {
+    /* Up to 1024 ids; client requests one full snapshot per call. */
+    pb_size_t ids_count;
+    uint32_t ids[1024];
+} touchforce_v1_GetHapticAreaListResponse;
+
+typedef struct _touchforce_v1_DeleteHapticAreaRequest {
+    uint32_t id;
+} touchforce_v1_DeleteHapticAreaRequest;
+
+typedef struct _touchforce_v1_DeleteAllHapticAreasRequest {
+    char dummy_field;
+} touchforce_v1_DeleteAllHapticAreasRequest;
+
+typedef struct _touchforce_v1_SetHapticAreaModeRequest {
+    bool enabled;
+} touchforce_v1_SetHapticAreaModeRequest;
+
+typedef struct _touchforce_v1_SetHapticAreaModeResponse {
+    bool enabled;
+} touchforce_v1_SetHapticAreaModeResponse;
+
+typedef struct _touchforce_v1_GetHapticAreaModeRequest {
+    char dummy_field;
+} touchforce_v1_GetHapticAreaModeRequest;
+
+/* Host -> MCU command messages.
+
+ Conventions (v2-relaxed from v1):
+   - request_id: opaque uint32 chosen by the host, echoed by the
+     MCU in Response.request_id when a Response is sent. SHOULD
+     be non-zero (proto3 elides zero defaults on the wire). Some
+     commands are fire-and-forget and produce no Response; for
+     those the host doesn't track the id.
+   - Field 2 in both Request and Response is reserved for
+     Response.error. Command oneof slots start at field 3.
+   - Parallel field numbers across Request and Response when
+     both messages have the slot. Gaps in either oneof are
+     acceptable for fire-and-forget commands. */
+typedef struct _touchforce_v1_Request {
+    uint32_t request_id;
+    pb_size_t which_payload;
+    union _touchforce_v1_Request_payload {
+        touchforce_v1_GetUptimeRequest get_uptime;
+        touchforce_v1_SetTouchStreamingRequest set_touch_streaming;
+        touchforce_v1_GetTelemetryRequest get_telemetry;
+        touchforce_v1_SetHapticAreaRequest set_haptic_area;
+        touchforce_v1_GetHapticAreaRequest get_haptic_area;
+        touchforce_v1_GetHapticAreaListRequest get_haptic_area_list;
+        touchforce_v1_DeleteHapticAreaRequest delete_haptic_area;
+        touchforce_v1_DeleteAllHapticAreasRequest delete_all_haptic_areas;
+        touchforce_v1_SetHapticAreaModeRequest set_haptic_area_mode;
+        touchforce_v1_GetHapticAreaModeRequest get_haptic_area_mode;
+    } payload;
+} touchforce_v1_Request;
+
+typedef struct _touchforce_v1_GetHapticAreaModeResponse {
+    bool enabled;
+} touchforce_v1_GetHapticAreaModeResponse;
+
+/* MCU -> host reply messages. Always carries the same request_id
+ the host sent. */
+typedef struct _touchforce_v1_Response {
+    uint32_t request_id;
+    pb_size_t which_payload;
+    union _touchforce_v1_Response_payload {
+        touchforce_v1_ErrorResponse error;
+        touchforce_v1_GetUptimeResponse get_uptime;
+        /* 4: gap — set_touch_streaming is fire-and-forget */
+        touchforce_v1_GetTelemetryResponse get_telemetry;
+        touchforce_v1_SetHapticAreaResponse set_haptic_area;
+        touchforce_v1_GetHapticAreaResponse get_haptic_area;
+        touchforce_v1_GetHapticAreaListResponse get_haptic_area_list;
+        touchforce_v1_OkResponse delete_haptic_area;
+        touchforce_v1_OkResponse delete_all_haptic_areas;
+        touchforce_v1_SetHapticAreaModeResponse set_haptic_area_mode;
+        touchforce_v1_GetHapticAreaModeResponse get_haptic_area_mode;
+    } payload;
+} touchforce_v1_Response;
+
 /* Top-level wrapper for every COBS frame on the wire, regardless
  of direction. Receivers always pb_decode(Frame) first, then
  switch on which_kind. Adding a new top-level kind in the future
@@ -144,6 +258,45 @@ typedef struct _touchforce_v1_Frame {
 extern "C" {
 #endif
 
+/* Helper constants for enums */
+#define _touchforce_v1_HapticEffect_MIN touchforce_v1_HapticEffect_HAPTIC_EFFECT_UNSPECIFIED
+#define _touchforce_v1_HapticEffect_MAX touchforce_v1_HapticEffect_HAPTIC_EFFECT_DEFAULT
+#define _touchforce_v1_HapticEffect_ARRAYSIZE ((touchforce_v1_HapticEffect)(touchforce_v1_HapticEffect_HAPTIC_EFFECT_DEFAULT+1))
+
+#define _touchforce_v1_HapticAreaKind_MIN touchforce_v1_HapticAreaKind_HAPTIC_AREA_KIND_UNSPECIFIED
+#define _touchforce_v1_HapticAreaKind_MAX touchforce_v1_HapticAreaKind_HAPTIC_AREA_KIND_BLOCK
+#define _touchforce_v1_HapticAreaKind_ARRAYSIZE ((touchforce_v1_HapticAreaKind)(touchforce_v1_HapticAreaKind_HAPTIC_AREA_KIND_BLOCK+1))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#define touchforce_v1_HapticArea_kind_ENUMTYPE touchforce_v1_HapticAreaKind
+#define touchforce_v1_HapticArea_haptic_ENUMTYPE touchforce_v1_HapticEffect
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 /* Initializer values for message structs */
 #define touchforce_v1_Frame_init_default         {0, {touchforce_v1_Request_init_default}}
 #define touchforce_v1_Request_init_default       {0, 0, {touchforce_v1_GetUptimeRequest_init_default}}
@@ -157,6 +310,21 @@ extern "C" {
 #define touchforce_v1_GetTelemetryResponse_init_default {0, 0}
 #define touchforce_v1_TouchFrameEvent_init_default {0, 0, 0, {touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default, touchforce_v1_TouchFinger_init_default}}
 #define touchforce_v1_TouchFinger_init_default   {0, 0, 0, 0, 0, 0, 0}
+#define touchforce_v1_HapticAreaRect_init_default {0, 0, 0, 0}
+#define touchforce_v1_HapticArea_init_default    {0, "", false, touchforce_v1_HapticAreaRect_init_default, 0, _touchforce_v1_HapticAreaKind_MIN, _touchforce_v1_HapticEffect_MIN}
+#define touchforce_v1_OkResponse_init_default    {0}
+#define touchforce_v1_SetHapticAreaRequest_init_default {false, touchforce_v1_HapticArea_init_default}
+#define touchforce_v1_SetHapticAreaResponse_init_default {false, touchforce_v1_HapticArea_init_default}
+#define touchforce_v1_GetHapticAreaRequest_init_default {0}
+#define touchforce_v1_GetHapticAreaResponse_init_default {false, touchforce_v1_HapticArea_init_default}
+#define touchforce_v1_GetHapticAreaListRequest_init_default {0}
+#define touchforce_v1_GetHapticAreaListResponse_init_default {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
+#define touchforce_v1_DeleteHapticAreaRequest_init_default {0}
+#define touchforce_v1_DeleteAllHapticAreasRequest_init_default {0}
+#define touchforce_v1_SetHapticAreaModeRequest_init_default {0}
+#define touchforce_v1_SetHapticAreaModeResponse_init_default {0}
+#define touchforce_v1_GetHapticAreaModeRequest_init_default {0}
+#define touchforce_v1_GetHapticAreaModeResponse_init_default {0}
 #define touchforce_v1_Frame_init_zero            {0, {touchforce_v1_Request_init_zero}}
 #define touchforce_v1_Request_init_zero          {0, 0, {touchforce_v1_GetUptimeRequest_init_zero}}
 #define touchforce_v1_Response_init_zero         {0, 0, {touchforce_v1_ErrorResponse_init_zero}}
@@ -169,22 +337,29 @@ extern "C" {
 #define touchforce_v1_GetTelemetryResponse_init_zero {0, 0}
 #define touchforce_v1_TouchFrameEvent_init_zero  {0, 0, 0, {touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero, touchforce_v1_TouchFinger_init_zero}}
 #define touchforce_v1_TouchFinger_init_zero      {0, 0, 0, 0, 0, 0, 0}
+#define touchforce_v1_HapticAreaRect_init_zero   {0, 0, 0, 0}
+#define touchforce_v1_HapticArea_init_zero       {0, "", false, touchforce_v1_HapticAreaRect_init_zero, 0, _touchforce_v1_HapticAreaKind_MIN, _touchforce_v1_HapticEffect_MIN}
+#define touchforce_v1_OkResponse_init_zero       {0}
+#define touchforce_v1_SetHapticAreaRequest_init_zero {false, touchforce_v1_HapticArea_init_zero}
+#define touchforce_v1_SetHapticAreaResponse_init_zero {false, touchforce_v1_HapticArea_init_zero}
+#define touchforce_v1_GetHapticAreaRequest_init_zero {0}
+#define touchforce_v1_GetHapticAreaResponse_init_zero {false, touchforce_v1_HapticArea_init_zero}
+#define touchforce_v1_GetHapticAreaListRequest_init_zero {0}
+#define touchforce_v1_GetHapticAreaListResponse_init_zero {0, {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}}
+#define touchforce_v1_DeleteHapticAreaRequest_init_zero {0}
+#define touchforce_v1_DeleteAllHapticAreasRequest_init_zero {0}
+#define touchforce_v1_SetHapticAreaModeRequest_init_zero {0}
+#define touchforce_v1_SetHapticAreaModeResponse_init_zero {0}
+#define touchforce_v1_GetHapticAreaModeRequest_init_zero {0}
+#define touchforce_v1_GetHapticAreaModeResponse_init_zero {0}
 
 /* Field tags (for use in manual encoding/decoding) */
 #define touchforce_v1_ErrorResponse_code_tag     1
 #define touchforce_v1_ErrorResponse_message_tag  2
 #define touchforce_v1_GetUptimeResponse_uptime_ms_tag 1
 #define touchforce_v1_SetTouchStreamingRequest_enabled_tag 1
-#define touchforce_v1_Request_request_id_tag     1
-#define touchforce_v1_Request_get_uptime_tag     3
-#define touchforce_v1_Request_set_touch_streaming_tag 4
-#define touchforce_v1_Request_get_telemetry_tag  5
 #define touchforce_v1_GetTelemetryResponse_streaming_events_sent_tag 1
 #define touchforce_v1_GetTelemetryResponse_streaming_tx_fails_tag 2
-#define touchforce_v1_Response_request_id_tag    1
-#define touchforce_v1_Response_error_tag         2
-#define touchforce_v1_Response_get_uptime_tag    3
-#define touchforce_v1_Response_get_telemetry_tag 5
 #define touchforce_v1_TouchFinger_id_tag         1
 #define touchforce_v1_TouchFinger_touching_tag   2
 #define touchforce_v1_TouchFinger_x_tag          3
@@ -196,6 +371,47 @@ extern "C" {
 #define touchforce_v1_TouchFrameEvent_tips_touched_down_tag 2
 #define touchforce_v1_TouchFrameEvent_fingers_tag 3
 #define touchforce_v1_Event_touch_frame_tag      1
+#define touchforce_v1_HapticAreaRect_x0_tag      1
+#define touchforce_v1_HapticAreaRect_y0_tag      2
+#define touchforce_v1_HapticAreaRect_x1_tag      3
+#define touchforce_v1_HapticAreaRect_y1_tag      4
+#define touchforce_v1_HapticArea_id_tag          1
+#define touchforce_v1_HapticArea_tag_tag         2
+#define touchforce_v1_HapticArea_rect_tag        3
+#define touchforce_v1_HapticArea_enabled_tag     4
+#define touchforce_v1_HapticArea_kind_tag        5
+#define touchforce_v1_HapticArea_haptic_tag      6
+#define touchforce_v1_SetHapticAreaRequest_area_tag 1
+#define touchforce_v1_SetHapticAreaResponse_area_tag 1
+#define touchforce_v1_GetHapticAreaRequest_id_tag 1
+#define touchforce_v1_GetHapticAreaResponse_area_tag 1
+#define touchforce_v1_GetHapticAreaListResponse_ids_tag 1
+#define touchforce_v1_DeleteHapticAreaRequest_id_tag 1
+#define touchforce_v1_SetHapticAreaModeRequest_enabled_tag 1
+#define touchforce_v1_SetHapticAreaModeResponse_enabled_tag 1
+#define touchforce_v1_Request_request_id_tag     1
+#define touchforce_v1_Request_get_uptime_tag     3
+#define touchforce_v1_Request_set_touch_streaming_tag 4
+#define touchforce_v1_Request_get_telemetry_tag  5
+#define touchforce_v1_Request_set_haptic_area_tag 6
+#define touchforce_v1_Request_get_haptic_area_tag 7
+#define touchforce_v1_Request_get_haptic_area_list_tag 8
+#define touchforce_v1_Request_delete_haptic_area_tag 9
+#define touchforce_v1_Request_delete_all_haptic_areas_tag 10
+#define touchforce_v1_Request_set_haptic_area_mode_tag 11
+#define touchforce_v1_Request_get_haptic_area_mode_tag 12
+#define touchforce_v1_GetHapticAreaModeResponse_enabled_tag 1
+#define touchforce_v1_Response_request_id_tag    1
+#define touchforce_v1_Response_error_tag         2
+#define touchforce_v1_Response_get_uptime_tag    3
+#define touchforce_v1_Response_get_telemetry_tag 5
+#define touchforce_v1_Response_set_haptic_area_tag 6
+#define touchforce_v1_Response_get_haptic_area_tag 7
+#define touchforce_v1_Response_get_haptic_area_list_tag 8
+#define touchforce_v1_Response_delete_haptic_area_tag 9
+#define touchforce_v1_Response_delete_all_haptic_areas_tag 10
+#define touchforce_v1_Response_set_haptic_area_mode_tag 11
+#define touchforce_v1_Response_get_haptic_area_mode_tag 12
 #define touchforce_v1_Frame_request_tag          1
 #define touchforce_v1_Frame_response_tag         2
 #define touchforce_v1_Frame_event_tag            3
@@ -215,23 +431,51 @@ X(a, STATIC,   ONEOF,    MESSAGE,  (kind,event,kind.event),   3)
 X(a, STATIC,   SINGULAR, UINT32,   request_id,        1) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_uptime,payload.get_uptime),   3) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,set_touch_streaming,payload.set_touch_streaming),   4) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_telemetry,payload.get_telemetry),   5)
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_telemetry,payload.get_telemetry),   5) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,set_haptic_area,payload.set_haptic_area),   6) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_haptic_area,payload.get_haptic_area),   7) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_haptic_area_list,payload.get_haptic_area_list),   8) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,delete_haptic_area,payload.delete_haptic_area),   9) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,delete_all_haptic_areas,payload.delete_all_haptic_areas),  10) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,set_haptic_area_mode,payload.set_haptic_area_mode),  11) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_haptic_area_mode,payload.get_haptic_area_mode),  12)
 #define touchforce_v1_Request_CALLBACK NULL
 #define touchforce_v1_Request_DEFAULT NULL
 #define touchforce_v1_Request_payload_get_uptime_MSGTYPE touchforce_v1_GetUptimeRequest
 #define touchforce_v1_Request_payload_set_touch_streaming_MSGTYPE touchforce_v1_SetTouchStreamingRequest
 #define touchforce_v1_Request_payload_get_telemetry_MSGTYPE touchforce_v1_GetTelemetryRequest
+#define touchforce_v1_Request_payload_set_haptic_area_MSGTYPE touchforce_v1_SetHapticAreaRequest
+#define touchforce_v1_Request_payload_get_haptic_area_MSGTYPE touchforce_v1_GetHapticAreaRequest
+#define touchforce_v1_Request_payload_get_haptic_area_list_MSGTYPE touchforce_v1_GetHapticAreaListRequest
+#define touchforce_v1_Request_payload_delete_haptic_area_MSGTYPE touchforce_v1_DeleteHapticAreaRequest
+#define touchforce_v1_Request_payload_delete_all_haptic_areas_MSGTYPE touchforce_v1_DeleteAllHapticAreasRequest
+#define touchforce_v1_Request_payload_set_haptic_area_mode_MSGTYPE touchforce_v1_SetHapticAreaModeRequest
+#define touchforce_v1_Request_payload_get_haptic_area_mode_MSGTYPE touchforce_v1_GetHapticAreaModeRequest
 
 #define touchforce_v1_Response_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, UINT32,   request_id,        1) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,error,payload.error),   2) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_uptime,payload.get_uptime),   3) \
-X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_telemetry,payload.get_telemetry),   5)
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_telemetry,payload.get_telemetry),   5) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,set_haptic_area,payload.set_haptic_area),   6) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_haptic_area,payload.get_haptic_area),   7) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_haptic_area_list,payload.get_haptic_area_list),   8) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,delete_haptic_area,payload.delete_haptic_area),   9) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,delete_all_haptic_areas,payload.delete_all_haptic_areas),  10) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,set_haptic_area_mode,payload.set_haptic_area_mode),  11) \
+X(a, STATIC,   ONEOF,    MESSAGE,  (payload,get_haptic_area_mode,payload.get_haptic_area_mode),  12)
 #define touchforce_v1_Response_CALLBACK NULL
 #define touchforce_v1_Response_DEFAULT NULL
 #define touchforce_v1_Response_payload_error_MSGTYPE touchforce_v1_ErrorResponse
 #define touchforce_v1_Response_payload_get_uptime_MSGTYPE touchforce_v1_GetUptimeResponse
 #define touchforce_v1_Response_payload_get_telemetry_MSGTYPE touchforce_v1_GetTelemetryResponse
+#define touchforce_v1_Response_payload_set_haptic_area_MSGTYPE touchforce_v1_SetHapticAreaResponse
+#define touchforce_v1_Response_payload_get_haptic_area_MSGTYPE touchforce_v1_GetHapticAreaResponse
+#define touchforce_v1_Response_payload_get_haptic_area_list_MSGTYPE touchforce_v1_GetHapticAreaListResponse
+#define touchforce_v1_Response_payload_delete_haptic_area_MSGTYPE touchforce_v1_OkResponse
+#define touchforce_v1_Response_payload_delete_all_haptic_areas_MSGTYPE touchforce_v1_OkResponse
+#define touchforce_v1_Response_payload_set_haptic_area_mode_MSGTYPE touchforce_v1_SetHapticAreaModeResponse
+#define touchforce_v1_Response_payload_get_haptic_area_mode_MSGTYPE touchforce_v1_GetHapticAreaModeResponse
 
 #define touchforce_v1_Event_FIELDLIST(X, a) \
 X(a, STATIC,   ONEOF,    MESSAGE,  (payload,touch_frame,payload.touch_frame),   1)
@@ -290,6 +534,93 @@ X(a, STATIC,   SINGULAR, UINT32,   touch_duration,    7)
 #define touchforce_v1_TouchFinger_CALLBACK NULL
 #define touchforce_v1_TouchFinger_DEFAULT NULL
 
+#define touchforce_v1_HapticAreaRect_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   x0,                1) \
+X(a, STATIC,   SINGULAR, UINT32,   y0,                2) \
+X(a, STATIC,   SINGULAR, UINT32,   x1,                3) \
+X(a, STATIC,   SINGULAR, UINT32,   y1,                4)
+#define touchforce_v1_HapticAreaRect_CALLBACK NULL
+#define touchforce_v1_HapticAreaRect_DEFAULT NULL
+
+#define touchforce_v1_HapticArea_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   id,                1) \
+X(a, STATIC,   SINGULAR, STRING,   tag,               2) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  rect,              3) \
+X(a, STATIC,   SINGULAR, BOOL,     enabled,           4) \
+X(a, STATIC,   SINGULAR, UENUM,    kind,              5) \
+X(a, STATIC,   SINGULAR, UENUM,    haptic,            6)
+#define touchforce_v1_HapticArea_CALLBACK NULL
+#define touchforce_v1_HapticArea_DEFAULT NULL
+#define touchforce_v1_HapticArea_rect_MSGTYPE touchforce_v1_HapticAreaRect
+
+#define touchforce_v1_OkResponse_FIELDLIST(X, a) \
+
+#define touchforce_v1_OkResponse_CALLBACK NULL
+#define touchforce_v1_OkResponse_DEFAULT NULL
+
+#define touchforce_v1_SetHapticAreaRequest_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  area,              1)
+#define touchforce_v1_SetHapticAreaRequest_CALLBACK NULL
+#define touchforce_v1_SetHapticAreaRequest_DEFAULT NULL
+#define touchforce_v1_SetHapticAreaRequest_area_MSGTYPE touchforce_v1_HapticArea
+
+#define touchforce_v1_SetHapticAreaResponse_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  area,              1)
+#define touchforce_v1_SetHapticAreaResponse_CALLBACK NULL
+#define touchforce_v1_SetHapticAreaResponse_DEFAULT NULL
+#define touchforce_v1_SetHapticAreaResponse_area_MSGTYPE touchforce_v1_HapticArea
+
+#define touchforce_v1_GetHapticAreaRequest_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   id,                1)
+#define touchforce_v1_GetHapticAreaRequest_CALLBACK NULL
+#define touchforce_v1_GetHapticAreaRequest_DEFAULT NULL
+
+#define touchforce_v1_GetHapticAreaResponse_FIELDLIST(X, a) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  area,              1)
+#define touchforce_v1_GetHapticAreaResponse_CALLBACK NULL
+#define touchforce_v1_GetHapticAreaResponse_DEFAULT NULL
+#define touchforce_v1_GetHapticAreaResponse_area_MSGTYPE touchforce_v1_HapticArea
+
+#define touchforce_v1_GetHapticAreaListRequest_FIELDLIST(X, a) \
+
+#define touchforce_v1_GetHapticAreaListRequest_CALLBACK NULL
+#define touchforce_v1_GetHapticAreaListRequest_DEFAULT NULL
+
+#define touchforce_v1_GetHapticAreaListResponse_FIELDLIST(X, a) \
+X(a, STATIC,   REPEATED, UINT32,   ids,               1)
+#define touchforce_v1_GetHapticAreaListResponse_CALLBACK NULL
+#define touchforce_v1_GetHapticAreaListResponse_DEFAULT NULL
+
+#define touchforce_v1_DeleteHapticAreaRequest_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UINT32,   id,                1)
+#define touchforce_v1_DeleteHapticAreaRequest_CALLBACK NULL
+#define touchforce_v1_DeleteHapticAreaRequest_DEFAULT NULL
+
+#define touchforce_v1_DeleteAllHapticAreasRequest_FIELDLIST(X, a) \
+
+#define touchforce_v1_DeleteAllHapticAreasRequest_CALLBACK NULL
+#define touchforce_v1_DeleteAllHapticAreasRequest_DEFAULT NULL
+
+#define touchforce_v1_SetHapticAreaModeRequest_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BOOL,     enabled,           1)
+#define touchforce_v1_SetHapticAreaModeRequest_CALLBACK NULL
+#define touchforce_v1_SetHapticAreaModeRequest_DEFAULT NULL
+
+#define touchforce_v1_SetHapticAreaModeResponse_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BOOL,     enabled,           1)
+#define touchforce_v1_SetHapticAreaModeResponse_CALLBACK NULL
+#define touchforce_v1_SetHapticAreaModeResponse_DEFAULT NULL
+
+#define touchforce_v1_GetHapticAreaModeRequest_FIELDLIST(X, a) \
+
+#define touchforce_v1_GetHapticAreaModeRequest_CALLBACK NULL
+#define touchforce_v1_GetHapticAreaModeRequest_DEFAULT NULL
+
+#define touchforce_v1_GetHapticAreaModeResponse_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, BOOL,     enabled,           1)
+#define touchforce_v1_GetHapticAreaModeResponse_CALLBACK NULL
+#define touchforce_v1_GetHapticAreaModeResponse_DEFAULT NULL
+
 extern const pb_msgdesc_t touchforce_v1_Frame_msg;
 extern const pb_msgdesc_t touchforce_v1_Request_msg;
 extern const pb_msgdesc_t touchforce_v1_Response_msg;
@@ -302,6 +633,21 @@ extern const pb_msgdesc_t touchforce_v1_GetTelemetryRequest_msg;
 extern const pb_msgdesc_t touchforce_v1_GetTelemetryResponse_msg;
 extern const pb_msgdesc_t touchforce_v1_TouchFrameEvent_msg;
 extern const pb_msgdesc_t touchforce_v1_TouchFinger_msg;
+extern const pb_msgdesc_t touchforce_v1_HapticAreaRect_msg;
+extern const pb_msgdesc_t touchforce_v1_HapticArea_msg;
+extern const pb_msgdesc_t touchforce_v1_OkResponse_msg;
+extern const pb_msgdesc_t touchforce_v1_SetHapticAreaRequest_msg;
+extern const pb_msgdesc_t touchforce_v1_SetHapticAreaResponse_msg;
+extern const pb_msgdesc_t touchforce_v1_GetHapticAreaRequest_msg;
+extern const pb_msgdesc_t touchforce_v1_GetHapticAreaResponse_msg;
+extern const pb_msgdesc_t touchforce_v1_GetHapticAreaListRequest_msg;
+extern const pb_msgdesc_t touchforce_v1_GetHapticAreaListResponse_msg;
+extern const pb_msgdesc_t touchforce_v1_DeleteHapticAreaRequest_msg;
+extern const pb_msgdesc_t touchforce_v1_DeleteAllHapticAreasRequest_msg;
+extern const pb_msgdesc_t touchforce_v1_SetHapticAreaModeRequest_msg;
+extern const pb_msgdesc_t touchforce_v1_SetHapticAreaModeResponse_msg;
+extern const pb_msgdesc_t touchforce_v1_GetHapticAreaModeRequest_msg;
+extern const pb_msgdesc_t touchforce_v1_GetHapticAreaModeResponse_msg;
 
 /* Defines for backwards compatibility with code written before nanopb-0.4.0 */
 #define touchforce_v1_Frame_fields &touchforce_v1_Frame_msg
@@ -316,18 +662,48 @@ extern const pb_msgdesc_t touchforce_v1_TouchFinger_msg;
 #define touchforce_v1_GetTelemetryResponse_fields &touchforce_v1_GetTelemetryResponse_msg
 #define touchforce_v1_TouchFrameEvent_fields &touchforce_v1_TouchFrameEvent_msg
 #define touchforce_v1_TouchFinger_fields &touchforce_v1_TouchFinger_msg
+#define touchforce_v1_HapticAreaRect_fields &touchforce_v1_HapticAreaRect_msg
+#define touchforce_v1_HapticArea_fields &touchforce_v1_HapticArea_msg
+#define touchforce_v1_OkResponse_fields &touchforce_v1_OkResponse_msg
+#define touchforce_v1_SetHapticAreaRequest_fields &touchforce_v1_SetHapticAreaRequest_msg
+#define touchforce_v1_SetHapticAreaResponse_fields &touchforce_v1_SetHapticAreaResponse_msg
+#define touchforce_v1_GetHapticAreaRequest_fields &touchforce_v1_GetHapticAreaRequest_msg
+#define touchforce_v1_GetHapticAreaResponse_fields &touchforce_v1_GetHapticAreaResponse_msg
+#define touchforce_v1_GetHapticAreaListRequest_fields &touchforce_v1_GetHapticAreaListRequest_msg
+#define touchforce_v1_GetHapticAreaListResponse_fields &touchforce_v1_GetHapticAreaListResponse_msg
+#define touchforce_v1_DeleteHapticAreaRequest_fields &touchforce_v1_DeleteHapticAreaRequest_msg
+#define touchforce_v1_DeleteAllHapticAreasRequest_fields &touchforce_v1_DeleteAllHapticAreasRequest_msg
+#define touchforce_v1_SetHapticAreaModeRequest_fields &touchforce_v1_SetHapticAreaModeRequest_msg
+#define touchforce_v1_SetHapticAreaModeResponse_fields &touchforce_v1_SetHapticAreaModeResponse_msg
+#define touchforce_v1_GetHapticAreaModeRequest_fields &touchforce_v1_GetHapticAreaModeRequest_msg
+#define touchforce_v1_GetHapticAreaModeResponse_fields &touchforce_v1_GetHapticAreaModeResponse_msg
 
 /* Maximum encoded size of messages (where known) */
 #define TOUCHFORCE_V1_TOUCH_FORCE_PB_H_MAX_SIZE  touchforce_v1_Frame_size
+#define touchforce_v1_DeleteAllHapticAreasRequest_size 0
+#define touchforce_v1_DeleteHapticAreaRequest_size 6
 #define touchforce_v1_ErrorResponse_size         71
 #define touchforce_v1_Event_size                 415
-#define touchforce_v1_Frame_size                 418
+#define touchforce_v1_Frame_size                 6156
+#define touchforce_v1_GetHapticAreaListRequest_size 0
+#define touchforce_v1_GetHapticAreaListResponse_size 6144
+#define touchforce_v1_GetHapticAreaModeRequest_size 0
+#define touchforce_v1_GetHapticAreaModeResponse_size 2
+#define touchforce_v1_GetHapticAreaRequest_size  6
+#define touchforce_v1_GetHapticAreaResponse_size 74
 #define touchforce_v1_GetTelemetryRequest_size   0
 #define touchforce_v1_GetTelemetryResponse_size  12
 #define touchforce_v1_GetUptimeRequest_size      0
 #define touchforce_v1_GetUptimeResponse_size     6
-#define touchforce_v1_Request_size               10
-#define touchforce_v1_Response_size              79
+#define touchforce_v1_HapticAreaRect_size        24
+#define touchforce_v1_HapticArea_size            72
+#define touchforce_v1_OkResponse_size            0
+#define touchforce_v1_Request_size               82
+#define touchforce_v1_Response_size              6153
+#define touchforce_v1_SetHapticAreaModeRequest_size 2
+#define touchforce_v1_SetHapticAreaModeResponse_size 2
+#define touchforce_v1_SetHapticAreaRequest_size  74
+#define touchforce_v1_SetHapticAreaResponse_size 74
 #define touchforce_v1_SetTouchStreamingRequest_size 2
 #define touchforce_v1_TouchFinger_size           38
 #define touchforce_v1_TouchFrameEvent_size       412

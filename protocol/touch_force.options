@@ -7,3 +7,5 @@
 # delivers field descriptors with their package prefix attached.
 touchforce.v1.ErrorResponse.message  max_size:64
 touchforce.v1.TouchFrameEvent.fingers  max_count:10
+touchforce.v1.HapticArea.tag                    max_size:33
+touchforce.v1.GetHapticAreaListResponse.ids     max_count:1024

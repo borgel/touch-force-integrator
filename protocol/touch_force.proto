@@ -31,9 +31,16 @@ message Request {
   uint32 request_id = 1;
   // field 2 reserved for Response.error symmetry
   oneof payload {
-    GetUptimeRequest         get_uptime          = 3;
-    SetTouchStreamingRequest set_touch_streaming = 4;
-    GetTelemetryRequest      get_telemetry       = 5;
+    GetUptimeRequest             get_uptime              = 3;
+    SetTouchStreamingRequest     set_touch_streaming     = 4;
+    GetTelemetryRequest          get_telemetry           = 5;
+    SetHapticAreaRequest         set_haptic_area         = 6;
+    GetHapticAreaRequest         get_haptic_area         = 7;
+    GetHapticAreaListRequest     get_haptic_area_list    = 8;
+    DeleteHapticAreaRequest      delete_haptic_area      = 9;
+    DeleteAllHapticAreasRequest  delete_all_haptic_areas = 10;
+    SetHapticAreaModeRequest     set_haptic_area_mode    = 11;
+    GetHapticAreaModeRequest     get_haptic_area_mode    = 12;
   }
 }
 
@@ -42,10 +49,17 @@ message Request {
 message Response {
   uint32 request_id = 1;
   oneof payload {
-    ErrorResponse        error         = 2;
-    GetUptimeResponse    get_uptime    = 3;
+    ErrorResponse            error                   = 2;
+    GetUptimeResponse        get_uptime              = 3;
     // 4: gap — set_touch_streaming is fire-and-forget
-    GetTelemetryResponse get_telemetry = 5;
+    GetTelemetryResponse     get_telemetry           = 5;
+    SetHapticAreaResponse    set_haptic_area         = 6;
+    GetHapticAreaResponse    get_haptic_area         = 7;
+    GetHapticAreaListResponse get_haptic_area_list   = 8;
+    OkResponse               delete_haptic_area      = 9;
+    OkResponse               delete_all_haptic_areas = 10;
+    SetHapticAreaModeResponse set_haptic_area_mode   = 11;
+    GetHapticAreaModeResponse get_haptic_area_mode   = 12;
   }
 }
 
@@ -121,3 +135,67 @@ message TouchFinger {
   // Microseconds since this touch started (id was first seen).
   uint32 touch_duration = 7;
 }
+
+// Effect to play when a fire-kind haptic area is hit. Phase 0 has
+// only HAPTIC_EFFECT_DEFAULT, mapped to a 100 ms LD1 pulse on the
+// H7S78-DK. The enum exists so future effects (short, long, click)
+// can land without a schema break.
+enum HapticEffect {
+  HAPTIC_EFFECT_UNSPECIFIED = 0;
+  HAPTIC_EFFECT_DEFAULT     = 1;
+}
+
+// Whether a haptic area fires a haptic on touch (FIRE) or
+// suppresses one in mode=enabled (BLOCK). Disabled areas (the
+// HapticArea.enabled flag is false) are excluded from hit-testing
+// regardless of kind.
+enum HapticAreaKind {
+  HAPTIC_AREA_KIND_UNSPECIFIED = 0;
+  HAPTIC_AREA_KIND_FIRE        = 1;
+  HAPTIC_AREA_KIND_BLOCK       = 2;
+}
+
+// Half-open rectangle in panel-resolution coordinates
+// (post-rotation, matching wisecoco TouchFinger.x/y). Convention:
+// x0 <= x < x1 && y0 <= y < y1, so adjacent rectangles tile
+// without ambiguous edge ownership.
+message HapticAreaRect {
+  uint32 x0 = 1;
+  uint32 y0 = 2;
+  uint32 x1 = 3;
+  uint32 y1 = 4;
+}
+
+// One haptic area record. id == 0 is reserved as the "create new"
+// sentinel on Set requests; all stored ids are non-zero.
+message HapticArea {
+  uint32         id      = 1;
+  string         tag     = 2;
+  HapticAreaRect rect    = 3;
+  bool           enabled = 4;
+  HapticAreaKind kind    = 5;
+  HapticEffect   haptic  = 6;
+}
+
+message OkResponse {}
+
+message SetHapticAreaRequest  { HapticArea area = 1; }
+message SetHapticAreaResponse { HapticArea area = 1; }
+
+message GetHapticAreaRequest  { uint32 id = 1; }
+message GetHapticAreaResponse { HapticArea area = 1; }
+
+message GetHapticAreaListRequest  {}
+message GetHapticAreaListResponse {
+  // Up to 1024 ids; client requests one full snapshot per call.
+  repeated uint32 ids = 1 [packed = true];
+}
+
+message DeleteHapticAreaRequest      { uint32 id = 1; }
+message DeleteAllHapticAreasRequest  {}
+
+message SetHapticAreaModeRequest  { bool enabled = 1; }
+message SetHapticAreaModeResponse { bool enabled = 1; }
+
+message GetHapticAreaModeRequest  {}
+message GetHapticAreaModeResponse { bool enabled = 1; }

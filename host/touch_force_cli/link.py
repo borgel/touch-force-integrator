@@ -15,6 +15,37 @@ from typing import Callable, Optional, Protocol
 
 from touch_force_cli import touch_force_pb2 as _pb
 
+_KIND_FROM_STR = {
+    "fire":  _pb.HAPTIC_AREA_KIND_FIRE,
+    "block": _pb.HAPTIC_AREA_KIND_BLOCK,
+}
+_KIND_TO_STR = {v: k for k, v in _KIND_FROM_STR.items()}
+
+_HAPTIC_FROM_STR = {
+    "default": _pb.HAPTIC_EFFECT_DEFAULT,
+}
+_HAPTIC_TO_STR = {v: k for k, v in _HAPTIC_FROM_STR.items()}
+
+
+def _area_to_dict(area) -> dict:
+    return {
+        "id":      area.id,
+        "tag":     area.tag,
+        "rect":    {
+            "x0": area.rect.x0,
+            "y0": area.rect.y0,
+            "x1": area.rect.x1,
+            "y1": area.rect.y1,
+        },
+        "x0":      area.rect.x0,
+        "y0":      area.rect.y0,
+        "x1":      area.rect.x1,
+        "y1":      area.rect.y1,
+        "enabled": area.enabled,
+        "kind":    _KIND_TO_STR.get(area.kind, "unknown"),
+        "haptic":  _HAPTIC_TO_STR.get(area.haptic, "unknown"),
+    }
+
 
 class FramingError(ValueError):
     """Raised when a frame on the wire violates COBS encoding rules."""
@@ -251,3 +282,144 @@ class Link:
             if kind == "event":
                 yield frame.event
             # else: discard (Response with no pending request, or unexpected)
+
+    # ------------------------------------------------------------------
+    # Haptic-area mode
+    # ------------------------------------------------------------------
+
+    def set_haptic_area_mode(self, *, enabled: bool) -> bool:
+        """Enable or disable haptic-area mode. Returns the now-current mode."""
+        rid = self._next_id()
+        out = _pb.Frame()
+        out.request.request_id = rid
+        out.request.set_haptic_area_mode.enabled = enabled
+        write_frame(self._t, out.SerializeToString())
+        resp = self._read_response(rid)
+        which = resp.WhichOneof("payload")
+        if which == "error":
+            raise RemoteError(code=resp.error.code, message=resp.error.message)
+        if which == "set_haptic_area_mode":
+            return resp.set_haptic_area_mode.enabled
+        raise ProtocolError(f"unexpected response payload: {which!r}")
+
+    def get_haptic_area_mode(self) -> bool:
+        """Read the current haptic-area mode."""
+        rid = self._next_id()
+        out = _pb.Frame()
+        out.request.request_id = rid
+        out.request.get_haptic_area_mode.SetInParent()
+        write_frame(self._t, out.SerializeToString())
+        resp = self._read_response(rid)
+        which = resp.WhichOneof("payload")
+        if which == "error":
+            raise RemoteError(code=resp.error.code, message=resp.error.message)
+        if which == "get_haptic_area_mode":
+            return resp.get_haptic_area_mode.enabled
+        raise ProtocolError(f"unexpected response payload: {which!r}")
+
+    # ------------------------------------------------------------------
+    # Haptic-area CRUD
+    # ------------------------------------------------------------------
+
+    def add_haptic_area(self, *, x0: int, y0: int, x1: int, y1: int,
+                        tag: str = "", kind: str = "fire",
+                        enabled: bool = True, haptic: str = "default") -> dict:
+        """Create a new haptic area (id is device-assigned). Returns the
+        full record including the assigned id, as a dict."""
+        return self._set_haptic_area(
+            id_=0, x0=x0, y0=y0, x1=x1, y1=y1,
+            tag=tag, kind=kind, enabled=enabled, haptic=haptic)
+
+    def update_haptic_area(self, id: int, **fields) -> dict:
+        """Read-modify-write at a known id. fields can override any of:
+        x0, y0, x1, y1, tag, kind, enabled, haptic."""
+        cur = self.get_haptic_area(id)
+        cur.update(fields)
+        # 'rect' came back as a nested dict; flatten back if present.
+        if "rect" in cur:
+            cur.update(cur.pop("rect"))
+        return self._set_haptic_area(id_=id, **{
+            k: cur[k] for k in ("x0", "y0", "x1", "y1", "tag", "kind", "enabled", "haptic")
+        })
+
+    def get_haptic_area(self, id: int) -> dict:
+        """Fetch one haptic area by id. Returns dict; raises RemoteError
+        (code=2) if id not found."""
+        rid = self._next_id()
+        out = _pb.Frame()
+        out.request.request_id = rid
+        out.request.get_haptic_area.id = id
+        write_frame(self._t, out.SerializeToString())
+        resp = self._read_response(rid)
+        which = resp.WhichOneof("payload")
+        if which == "error":
+            raise RemoteError(code=resp.error.code, message=resp.error.message)
+        if which == "get_haptic_area":
+            return _area_to_dict(resp.get_haptic_area.area)
+        raise ProtocolError(f"unexpected response payload: {which!r}")
+
+    def list_haptic_areas(self) -> list[int]:
+        """Return all current haptic-area ids (up to 1024)."""
+        rid = self._next_id()
+        out = _pb.Frame()
+        out.request.request_id = rid
+        out.request.get_haptic_area_list.SetInParent()
+        write_frame(self._t, out.SerializeToString())
+        resp = self._read_response(rid)
+        which = resp.WhichOneof("payload")
+        if which == "error":
+            raise RemoteError(code=resp.error.code, message=resp.error.message)
+        if which == "get_haptic_area_list":
+            return list(resp.get_haptic_area_list.ids)
+        raise ProtocolError(f"unexpected response payload: {which!r}")
+
+    def delete_haptic_area(self, id: int) -> None:
+        """Delete a haptic area. Raises RemoteError (code=2) if not found."""
+        rid = self._next_id()
+        out = _pb.Frame()
+        out.request.request_id = rid
+        out.request.delete_haptic_area.id = id
+        write_frame(self._t, out.SerializeToString())
+        resp = self._read_response(rid)
+        which = resp.WhichOneof("payload")
+        if which == "error":
+            raise RemoteError(code=resp.error.code, message=resp.error.message)
+        if which == "delete_haptic_area":
+            return
+        raise ProtocolError(f"unexpected response payload: {which!r}")
+
+    def delete_all_haptic_areas(self) -> None:
+        """Delete every haptic area."""
+        rid = self._next_id()
+        out = _pb.Frame()
+        out.request.request_id = rid
+        out.request.delete_all_haptic_areas.SetInParent()
+        write_frame(self._t, out.SerializeToString())
+        resp = self._read_response(rid)
+        which = resp.WhichOneof("payload")
+        if which == "error":
+            raise RemoteError(code=resp.error.code, message=resp.error.message)
+        if which == "delete_all_haptic_areas":
+            return
+        raise ProtocolError(f"unexpected response payload: {which!r}")
+
+    def _set_haptic_area(self, *, id_: int, x0: int, y0: int, x1: int, y1: int,
+                         tag: str, kind: str, enabled: bool, haptic: str) -> dict:
+        rid = self._next_id()
+        out = _pb.Frame()
+        out.request.request_id = rid
+        a = out.request.set_haptic_area.area
+        a.id      = id_
+        a.tag     = tag
+        a.rect.x0 = x0; a.rect.y0 = y0; a.rect.x1 = x1; a.rect.y1 = y1
+        a.enabled = enabled
+        a.kind    = _KIND_FROM_STR[kind]
+        a.haptic  = _HAPTIC_FROM_STR[haptic]
+        write_frame(self._t, out.SerializeToString())
+        resp = self._read_response(rid)
+        which = resp.WhichOneof("payload")
+        if which == "error":
+            raise RemoteError(code=resp.error.code, message=resp.error.message)
+        if which == "set_haptic_area":
+            return _area_to_dict(resp.set_haptic_area.area)
+        raise ProtocolError(f"unexpected response payload: {which!r}")

@@ -59,9 +59,19 @@
 			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/freertos.c</locationURI>
 		</link>
 		<link>
+			<name>Application/User/haptic_area.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/haptic_area.c</locationURI>
+		</link>
+		<link>
 			<name>Application/User/main.c</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/main.c</locationURI>
+		</link>
+		<link>
+			<name>Application/User/protocol_task.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/protocol_task.c</locationURI>
 		</link>
 		<link>
 			<name>Application/User/stm32h7rsxx_hal_msp.c</name>
@@ -257,6 +267,16 @@
 			<name>Drivers/STM32H7RSxx_HAL_Driver/stm32h7rsxx_hal_rcc_ex.c</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Drivers/STM32H7RSxx_HAL_Driver/Src/stm32h7rsxx_hal_rcc_ex.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/STM32H7RSxx_HAL_Driver/stm32h7rsxx_hal_rng.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Drivers/STM32H7RSxx_HAL_Driver/Src/stm32h7rsxx_hal_rng.c</locationURI>
+		</link>
+		<link>
+			<name>Drivers/STM32H7RSxx_HAL_Driver/stm32h7rsxx_hal_rng_ex.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Drivers/STM32H7RSxx_HAL_Driver/Src/stm32h7rsxx_hal_rng_ex.c</locationURI>
 		</link>
 		<link>
 			<name>Drivers/STM32H7RSxx_HAL_Driver/stm32h7rsxx_hal_smbus.c</name>
@@ -484,6 +504,11 @@
 			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_pipes.c</locationURI>
 		</link>
 		<link>
+			<name>Middlewares/cobs-c/cobs.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/cobs-c/cobs.c</locationURI>
+		</link>
+		<link>
 			<name>Middlewares/nanopb/pb_common.c</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/nanopb/pb_common.c</locationURI>
@@ -584,6 +609,11 @@
 			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/stm32_lcd.h</locationURI>
 		</link>
 		<link>
+			<name>Application/User/proto/touch_force.pb.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/proto/touch_force.pb.c</locationURI>
+		</link>
+		<link>
 			<name>Drivers/BSP/Components/aps256xx.c</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Drivers/BSP/Components/aps256xx/aps256xx.c</locationURI>
@@ -677,21 +707,6 @@
 			<name>Utilities/lcd/_htmresc/st_logo_2020.png</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Utilities/lcd/_htmresc/st_logo_2020.png</locationURI>
-		</link>
-		<link>
-			<name>Application/User/protocol_task.c</name>
-			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/protocol_task.c</locationURI>
-		</link>
-		<link>
-			<name>Application/User/proto/touch_force.pb.c</name>
-			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/proto/touch_force.pb.c</locationURI>
-		</link>
-		<link>
-			<name>Middlewares/cobs-c/cobs.c</name>
-			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Middlewares/cobs-c/cobs.c</locationURI>
 		</link>
 	</linkedResources>
 </projectDescription>

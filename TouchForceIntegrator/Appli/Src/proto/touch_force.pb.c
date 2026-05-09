@@ -6,13 +6,13 @@
 #error Regenerate this file with the current version of nanopb generator.
 #endif
 
-PB_BIND(touchforce_v1_Frame, touchforce_v1_Frame, 2)
+PB_BIND(touchforce_v1_Frame, touchforce_v1_Frame, 4)
 
 
 PB_BIND(touchforce_v1_Request, touchforce_v1_Request, AUTO)
 
 
-PB_BIND(touchforce_v1_Response, touchforce_v1_Response, AUTO)
+PB_BIND(touchforce_v1_Response, touchforce_v1_Response, 4)
 
 
 PB_BIND(touchforce_v1_Event, touchforce_v1_Event, 2)
@@ -40,6 +40,55 @@ PB_BIND(touchforce_v1_TouchFrameEvent, touchforce_v1_TouchFrameEvent, 2)
 
 
 PB_BIND(touchforce_v1_TouchFinger, touchforce_v1_TouchFinger, AUTO)
+
+
+PB_BIND(touchforce_v1_HapticAreaRect, touchforce_v1_HapticAreaRect, AUTO)
+
+
+PB_BIND(touchforce_v1_HapticArea, touchforce_v1_HapticArea, AUTO)
+
+
+PB_BIND(touchforce_v1_OkResponse, touchforce_v1_OkResponse, AUTO)
+
+
+PB_BIND(touchforce_v1_SetHapticAreaRequest, touchforce_v1_SetHapticAreaRequest, AUTO)
+
+
+PB_BIND(touchforce_v1_SetHapticAreaResponse, touchforce_v1_SetHapticAreaResponse, AUTO)
+
+
+PB_BIND(touchforce_v1_GetHapticAreaRequest, touchforce_v1_GetHapticAreaRequest, AUTO)
+
+
+PB_BIND(touchforce_v1_GetHapticAreaResponse, touchforce_v1_GetHapticAreaResponse, AUTO)
+
+
+PB_BIND(touchforce_v1_GetHapticAreaListRequest, touchforce_v1_GetHapticAreaListRequest, AUTO)
+
+
+PB_BIND(touchforce_v1_GetHapticAreaListResponse, touchforce_v1_GetHapticAreaListResponse, 4)
+
+
+PB_BIND(touchforce_v1_DeleteHapticAreaRequest, touchforce_v1_DeleteHapticAreaRequest, AUTO)
+
+
+PB_BIND(touchforce_v1_DeleteAllHapticAreasRequest, touchforce_v1_DeleteAllHapticAreasRequest, AUTO)
+
+
+PB_BIND(touchforce_v1_SetHapticAreaModeRequest, touchforce_v1_SetHapticAreaModeRequest, AUTO)
+
+
+PB_BIND(touchforce_v1_SetHapticAreaModeResponse, touchforce_v1_SetHapticAreaModeResponse, AUTO)
+
+
+PB_BIND(touchforce_v1_GetHapticAreaModeRequest, touchforce_v1_GetHapticAreaModeRequest, AUTO)
+
+
+PB_BIND(touchforce_v1_GetHapticAreaModeResponse, touchforce_v1_GetHapticAreaModeResponse, AUTO)
+
+
+
+
 
 
 

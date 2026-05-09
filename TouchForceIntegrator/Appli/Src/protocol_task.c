@@ -4,6 +4,8 @@
 #include "usbd_cdc_if.h"
 #include "usbd_def.h"
 
+#include "haptic_area.h"
+
 #include "cobs.h"
 #include "pb_decode.h"
 #include "pb_encode.h"
@@ -13,35 +15,25 @@
 #include <stdint.h>
 #include <string.h>
 
-/* Worst-case sizes for v2.
- *
- *   Incoming Frame{Request}: request_id (5) + oneof tag (1) +
- *     length (1) + payload (largest current: SetTouchStreaming
- *     ~3 bytes; future commands grow). Plus Frame envelope tag
- *     (1) + length (1). Well under 64 bytes for v2.
- *
- *   Outgoing Frame{Response}: largest is ErrorResponse with
- *     full 64-byte message (~75 bytes Response) plus Frame
- *     envelope ~3 bytes = ~78 bytes.
- *
- * COBS overhead: +1 per 254 + 1 leading byte. 256 covers it
- * comfortably and stays a power of 2 for cache cleanliness. */
-#define PROTO_FRAME_MAX_BYTES   256U
-#define PROTO_DECODED_MAX_BYTES 256U
+/* RX stays small: largest current Request (SetHapticArea) is ~80
+ * bytes. TX must hold GetHapticAreaListResponse with 1024 packed
+ * uint32 ids (~5 KB encoded) plus COBS overhead. */
+#define PROTO_RX_FRAME_MAX_BYTES  256U
+#define PROTO_RX_DECODED_BYTES    256U
+#define PROTO_TX_FRAME_MAX_BYTES  8192U
+#define PROTO_TX_ENCODED_BYTES    8192U
 
-/* Read timeout for assembling a single frame. */
 #define PROTO_RX_BLOCK_FOREVER  HAL_MAX_DELAY
 
-/* Outgoing response timeout. Different from Touch_StreamFrame's
- * 5ms drop-on-busy: a Response is correlated to a Request so
- * the host is actively waiting; we should pay a small wait. */
+/* Longer than Touch_StreamFrame's drop-on-busy: a Response is
+ * correlated to a Request, so the host is actively waiting. */
 #define PROTO_TX_TIMEOUT_MS     200U
 
-static uint8_t s_rxFrame[PROTO_FRAME_MAX_BYTES];
+static uint8_t s_rxFrame[PROTO_RX_FRAME_MAX_BYTES];
 static size_t  s_rxFrameLen;
-static uint8_t s_decodedBuf[PROTO_DECODED_MAX_BYTES];
-static uint8_t s_responseBuf[PROTO_DECODED_MAX_BYTES];
-static uint8_t s_txFrame[PROTO_FRAME_MAX_BYTES];
+static uint8_t s_decodedBuf[PROTO_RX_DECODED_BYTES];
+static uint8_t s_responseBuf[PROTO_TX_ENCODED_BYTES];
+static uint8_t s_txFrame[PROTO_TX_FRAME_MAX_BYTES];
 
 static void rx_reset(void)
 {
@@ -50,7 +42,7 @@ static void rx_reset(void)
 
 static bool rx_append(uint8_t b)
 {
-  if (s_rxFrameLen >= PROTO_FRAME_MAX_BYTES)
+  if (s_rxFrameLen >= PROTO_RX_FRAME_MAX_BYTES)
   {
     rx_reset();
     return false;
@@ -89,11 +81,65 @@ static void fill_error_response(touchforce_v1_Response *resp,
   }
 }
 
-/* Wrap resp in Frame{response: resp}, encode via nanopb,
- * COBS-encode + 0x00 delimiter, CDC_Write. */
+static void fill_set_haptic_area_response(const touchforce_v1_Request *req,
+                                          touchforce_v1_Response *resp)
+{
+  /* Copy by value: HapticArea_Set mutates the area to fill in the
+   * device-assigned id. A missing wire area decodes as all-zero,
+   * which fails rect validation as INVALID_RECT — fine. */
+  touchforce_v1_HapticArea area = req->payload.set_haptic_area.area;
+  uint32_t errCode = 0U;
+  if (HapticArea_Set(&area, &errCode)) {
+    resp->which_payload = touchforce_v1_Response_set_haptic_area_tag;
+    resp->payload.set_haptic_area.has_area = true;
+    resp->payload.set_haptic_area.area     = area;
+  } else {
+    fill_error_response(resp, errCode,
+                        errCode == HAPTIC_AREA_ERR_TABLE_FULL ? "table full"
+                      : errCode == HAPTIC_AREA_ERR_INVALID_RECT ? "invalid rect"
+                      : "set failed");
+  }
+}
+
+static void fill_get_haptic_area_response(const touchforce_v1_Request *req,
+                                          touchforce_v1_Response *resp)
+{
+  touchforce_v1_HapticArea area = touchforce_v1_HapticArea_init_zero;
+  if (HapticArea_Get(req->payload.get_haptic_area.id, &area)) {
+    resp->which_payload = touchforce_v1_Response_get_haptic_area_tag;
+    resp->payload.get_haptic_area.has_area = true;
+    resp->payload.get_haptic_area.area     = area;
+  } else {
+    fill_error_response(resp, HAPTIC_AREA_ERR_NOT_FOUND, "not found");
+  }
+}
+
+static void fill_get_haptic_area_list_response(touchforce_v1_Response *resp)
+{
+  resp->which_payload = touchforce_v1_Response_get_haptic_area_list_tag;
+  uint32_t cap = (uint32_t)HAPTIC_AREA_MAX_COUNT;
+  HapticArea_GetList(resp->payload.get_haptic_area_list.ids, &cap);
+  resp->payload.get_haptic_area_list.ids_count = (pb_size_t)cap;
+}
+
+static void fill_delete_haptic_area_response(const touchforce_v1_Request *req,
+                                             touchforce_v1_Response *resp)
+{
+  if (HapticArea_Delete(req->payload.delete_haptic_area.id)) {
+    /* Empty OkResponse — only the oneof tag matters. */
+    resp->which_payload = touchforce_v1_Response_delete_haptic_area_tag;
+  } else {
+    fill_error_response(resp, HAPTIC_AREA_ERR_NOT_FOUND, "not found");
+  }
+}
+
 static void send_response(const touchforce_v1_Response *resp)
 {
-  touchforce_v1_Frame frame = touchforce_v1_Frame_init_zero;
+  /* Static (BSS) — Frame is ~6 KB worst-case after the haptic-area
+   * additions, far past the 2 KB CDC_Task stack. Only _CDC_Task
+   * calls this. */
+  static touchforce_v1_Frame frame;
+  memset(&frame, 0, sizeof(frame));
   frame.which_kind = touchforce_v1_Frame_response_tag;
   frame.kind.response = *resp;
 
@@ -116,12 +162,9 @@ static void send_response(const touchforce_v1_Response *resp)
                   PROTO_TX_TIMEOUT_MS);
 }
 
-/* Process a single COBS-delimited frame from s_rxFrame.
- *
- * v2 wire format: every COBS frame is a Frame{kind} message.
- * For host->MCU traffic we only expect Frame{request}; anything
- * else (Response, Event) is dropped because it has no meaning
- * in this direction. */
+/* Process a single COBS-delimited frame from s_rxFrame. We only
+ * decode Frame{request}; Response or Event arriving from the host
+ * has no meaning in this direction and is dropped. */
 static void handle_frame(void)
 {
   if (s_rxFrameLen == 0U)
@@ -136,31 +179,30 @@ static void handle_frame(void)
     return;
   }
 
-  touchforce_v1_Frame frame = touchforce_v1_Frame_init_zero;
+  /* Static for the same reason as send_response. */
+  static touchforce_v1_Frame frame;
+  memset(&frame, 0, sizeof(frame));
   pb_istream_t is = pb_istream_from_buffer(s_decodedBuf, dec.out_len);
   if (!pb_decode(&is, touchforce_v1_Frame_fields, &frame))
   {
     return;
   }
 
-  /* We only handle Requests on this side of the wire. */
   if (frame.which_kind != touchforce_v1_Frame_request_tag)
   {
     return;
   }
   const touchforce_v1_Request *req = &frame.kind.request;
 
-  /* SetTouchStreaming is fire-and-forget — apply state and return
-   * with no Response. */
+  /* SetTouchStreaming is fire-and-forget — no Response. */
   if (req->which_payload == touchforce_v1_Request_set_touch_streaming_tag)
   {
     Touch_SetStreaming(req->payload.set_touch_streaming.enabled);
     return;
   }
 
-  /* Other commands always send a Response (even errors) so the
-   * host can correlate by request_id. */
-  touchforce_v1_Response resp = touchforce_v1_Response_init_zero;
+  static touchforce_v1_Response resp;
+  memset(&resp, 0, sizeof(resp));
   resp.request_id = req->request_id;
 
   switch (req->which_payload)
@@ -171,10 +213,34 @@ static void handle_frame(void)
     case touchforce_v1_Request_get_telemetry_tag:
       fill_get_telemetry_response(&resp);
       break;
+    case touchforce_v1_Request_set_haptic_area_tag:
+      fill_set_haptic_area_response(req, &resp);
+      break;
+    case touchforce_v1_Request_get_haptic_area_tag:
+      fill_get_haptic_area_response(req, &resp);
+      break;
+    case touchforce_v1_Request_get_haptic_area_list_tag:
+      fill_get_haptic_area_list_response(&resp);
+      break;
+    case touchforce_v1_Request_delete_haptic_area_tag:
+      fill_delete_haptic_area_response(req, &resp);
+      break;
+    case touchforce_v1_Request_delete_all_haptic_areas_tag:
+      HapticArea_DeleteAll();
+      resp.which_payload = touchforce_v1_Response_delete_all_haptic_areas_tag;
+      break;
+    case touchforce_v1_Request_set_haptic_area_mode_tag:
+      HapticArea_SetMode(req->payload.set_haptic_area_mode.enabled);
+      resp.which_payload = touchforce_v1_Response_set_haptic_area_mode_tag;
+      resp.payload.set_haptic_area_mode.enabled = HapticArea_GetMode();
+      break;
+    case touchforce_v1_Request_get_haptic_area_mode_tag:
+      resp.which_payload = touchforce_v1_Response_get_haptic_area_mode_tag;
+      resp.payload.get_haptic_area_mode.enabled = HapticArea_GetMode();
+      break;
     default:
-      /* Unknown command tag (host running newer protocol than MCU,
-       * or empty oneof / corrupt payload). Reply with ErrorResponse
-       * so the host can correlate. */
+      /* Newer-protocol host, empty oneof, or corrupt payload. The
+       * host can still correlate the error by request_id. */
       fill_error_response(&resp, 1U, "unknown command");
       break;
   }
